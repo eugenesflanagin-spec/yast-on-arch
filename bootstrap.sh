@@ -178,6 +178,12 @@ StartupNotify=true
 EOD
 fi
 
+# GTK front-end needs a system-wide icon theme: the sandboxed glycin SVG loader
+# binds only /usr, so themes under ~/.local/share/icons abort GTK on startup.
+mkdir -p "$PREFIX/gtkconf/gtk-3.0" "$PREFIX/gtkconf/gtk-4.0"
+install -Dm644 "$HERE/gtkconf/gtk-3.0/settings.ini" "$PREFIX/gtkconf/gtk-3.0/settings.ini"
+install -Dm644 "$HERE/gtkconf/gtk-3.0/settings.ini" "$PREFIX/gtkconf/gtk-4.0/settings.ini"
+
 install -Dm755 "$HERE/bin/yast"     "$ROOT/yast"
 install -Dm755 "$HERE/bin/yui-demo" "$ROOT/yui-demo"
 install -Dm644 "$HERE/yast-env.sh"  "$ROOT/yast-env.sh"

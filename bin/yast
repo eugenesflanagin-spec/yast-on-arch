@@ -20,6 +20,11 @@ esac; done
 if [ "$UI" = "gtk" ]; then
   export GTK_THEME="${YAST_GTK_THEME:-Adwaita:dark}"
   export GTK_APPLICATION_PREFER_DARK_THEME=1
+  # Icon themes in ~/.local/share/icons are unreadable by the sandboxed glycin
+  # SVG loader (it binds only /usr), which makes GTK abort. Force a system theme
+  # via a private XDG_CONFIG_HOME so the user's own GTK settings are untouched.
+  export XDG_CONFIG_HOME="$P/gtkconf"
+  export XDG_DATA_DIRS="/usr/share:${XDG_DATA_DIRS:-/usr/local/share}"
 fi
 if [ -z "$1" ]; then
     echo "YaST on Arch  (prefix: $P)"
@@ -35,6 +40,7 @@ if [ "$ASROOT" = 1 ] && [ "$(id -u)" != 0 ]; then
   PASS="RUBYLIB=$RUBYLIB Y2DIR=$Y2DIR LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
   PASS="$PASS GEM_PATH=$GEM_PATH PATH=$PATH Y2BASE_PLUGINDIR=$Y2BASE_PLUGINDIR"
   PASS="$PASS YAST_Y2BASE=$P/lib/YaST2/bin/y2base YAST_UI=$UI HOME=$HOME"
+    [ "$UI" = gtk ] && PASS="$PASS XDG_CONFIG_HOME=$P/gtkconf XDG_DATA_DIRS=/usr/share"
   if [ "$UI" != ncurses ]; then
     # GUI as root on Wayland: go through XWayland and grant root access to it
     xhost +SI:localuser:root >/dev/null 2>&1

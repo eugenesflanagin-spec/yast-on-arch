@@ -87,6 +87,10 @@ This is probably the single most reusable thing here — it would affect any dis
 - **YaST needs real root.** It checks `Process.uid == 0`; being in `wheel` isn't enough. Use
   `-r`, which passes the port's `RUBYLIB`/`Y2DIR` through `sudo` and, for GUI mode, routes via
   XWayland with `xhost +SI:localuser:root`.
+- **GTK aborts if your icon theme lives in `~/.local/share/icons`.** The sandboxed glycin
+  SVG loader binds only `/usr`, so it cannot read user-local themes and GTK dies on
+  `ensure_surface_for_gicon` with SIGABRT. The launcher points the GTK front-end at a private
+  `XDG_CONFIG_HOME` (`gtkconf/`) forcing system-wide Adwaita, leaving your own GTK settings alone.
 - **`/var/log/YaST2` doesn't exist on Arch** — root logging needs it created once.
 - **services-manager takes 2–4 minutes to start.** It runs two `systemctl` calls per unit and a
   typical Arch box has ~1000. Not a bug.
