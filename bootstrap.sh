@@ -161,6 +161,7 @@ declare -A REPO_PATCHES=(
   [yast-security]="14-security-live-sysctl-values"
   [yast-country]="16-country-language-posix-locale 17-country-console-magic-no-sysconfig"
   [yast-tftp-server]="18-tftp-arch-confd-and-units"
+  [yast-nis-client]="19-nis-ypbind-arch-confd"
 )
 for m in $MODULES; do
   clone "https://github.com/yast/$m.git" "$m" || continue
@@ -281,6 +282,14 @@ clone https://github.com/yast/yast-control-center.git yast-control-center
     -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_MODULE_PATH="$PREFIX/share/cmake/Modules" -DVERSION=4.7.0 >/dev/null
   cmake --build build -j"$(nproc)" >/dev/null && cmake --install build >/dev/null )
 mkdir -p "$PREFIX/qtconf"   # root Qt modules get a copy of the user's kdeglobals here
+
+# NIS client writes /etc/conf.d/ypbind (patch 19); ypbind-mt's unit takes flags on the command
+# line, so this drop-in turns that file into flags. The ONE thing bootstrap puts outside the
+# prefix, and only when ypbind-mt is installed (it is inert otherwise, so skip it).
+if pacman -Q ypbind-mt >/dev/null 2>&1; then
+  sudo install -Dm644 "$HERE/arch/systemd/ypbind.service.d/50-yast-arch-args.conf" \
+    /etc/systemd/system/ypbind.service.d/50-yast-arch-args.conf && sudo systemctl daemon-reload
+fi
 
 # Arch-adapted augeas lenses (Security module: Arch's login.defs has a bare MOTD_FILE)
 install -Dm644 "$HERE/arch/augeas/login_defs.aug" "$PREFIX/share/augeas/lenses/login_defs.aug"

@@ -1,0 +1,85 @@
+diff --git a/src/modules/Nis.rb b/src/modules/Nis.rb
+index 1f158bd..d6f3048 100644
+--- a/src/modules/Nis.rb
++++ b/src/modules/Nis.rb
+@@ -42,6 +42,8 @@ module Yast
+   class NisClass < Module
+     # @return [String] NIS client package name
+     NIS_CLIENT_PACKAGE = "ypbind".freeze
++    # ARCH PORT: where the .sysconfig.ypbind SCR agent actually writes.
++    YPBIND_CONFIG_FILE = "/etc/conf.d/ypbind".freeze
+ 
+     def main
+       textdomain "nis"
+@@ -1157,7 +1159,10 @@ module Yast
+         )
+         SCR.Write(path(".sysconfig.ypbind.YPBIND_OPTIONS"), @options)
+         if !SCR.Write(path(".sysconfig.ypbind"), nil)
+-          Report.Error(Message.ErrorWritingFile("/etc/sysconfig/ypbind"))
++          # ARCH PORT: the .sysconfig.ypbind agent is retargeted to
++          # /etc/conf.d/ypbind (see scrconf/cfg_ypbind.scr); report the path we
++          # actually write, not the SUSE one.
++          Report.Error(Message.ErrorWritingFile(YPBIND_CONFIG_FILE))
+           return false
+         end
+ 
+diff --git a/src/scrconf/cfg_ypbind.scr b/src/scrconf/cfg_ypbind.scr
+index 437f05a..93a4b02 100644
+--- a/src/scrconf/cfg_ypbind.scr
++++ b/src/scrconf/cfg_ypbind.scr
+@@ -22,9 +22,24 @@
+  *
+  * Read/Sets the values defined in <tt>/etc/sysconfig/ypbind</tt>
+  * in an easy manner.
++ * ARCH PORT: this agent used to point at /etc/sysconfig/ypbind, which does not
++ * exist on Arch -- agent-ini logged "Can not open /etc/sysconfig/ypbind" on every
++ * NIS Client run and the four settings below always read back as their defaults.
++ *
++ * Arch's ypbind-mt has no config file of its own for these: its unit is simply
++ * ExecStart=/usr/bin/ypbind with no arguments and no EnvironmentFile, because
++ * ypbind takes them as command-line flags (-local-only, -broadcast,
++ * -broken-server, see ypbind(8)).  We therefore keep the same four keys but put
++ * them where Arch keeps daemon defaults, /etc/conf.d, and ship a systemd
++ * drop-in (ypbind.service.d/50-yast-arch-args.conf) that turns them into those
++ * flags.  Without that drop-in installed the file is written but inert.
++ *
++ * NOTE /etc/sysconfig exists on this system as leftover cruft from unrelated
++ * packages, so writing there would have SUCCEEDED and then been silently
++ * ignored by ypbind -- worse than failing.  Hence the retarget.
+  */
+ .sysconfig.ypbind
+ 
+ `ag_ini(
+-  `SysConfigFile("/etc/sysconfig/ypbind")
++  `SysConfigFile("/etc/conf.d/ypbind")
+ )
+diff --git a/src/systemd/ypbind.service.d/50-yast-arch-args.conf b/src/systemd/ypbind.service.d/50-yast-arch-args.conf
+new file mode 100644
+index 0000000..7ad5edf
+--- /dev/null
++++ b/src/systemd/ypbind.service.d/50-yast-arch-args.conf
+@@ -0,0 +1,24 @@
++# ARCH PORT (yast-on-arch) -- make YaST's NIS Client settings take effect.
++#
++# Arch's ypbind-mt ships:
++#     ExecStart=/usr/bin/ypbind
++# with no arguments and no EnvironmentFile, so ypbind(8)'s flags can only be set
++# by editing the unit.  SUSE instead keeps them in /etc/sysconfig/ypbind and its
++# init script builds the command line.
++#
++# YaST's NIS Client module writes those same four keys, which the port retargets
++# to /etc/conf.d/ypbind (see scrconf/cfg_ypbind.scr).  This drop-in reads that
++# file and turns the keys into the flags ypbind actually accepts.  The leading
++# "-" on EnvironmentFile makes a missing file non-fatal, and the empty ExecStart=
++# is required to clear the unit's original one before replacing it.
++#
++# Install as: /etc/systemd/system/ypbind.service.d/50-yast-arch-args.conf
++# then: systemctl daemon-reload
++[Service]
++EnvironmentFile=-/etc/conf.d/ypbind
++ExecStart=
++ExecStart=/bin/sh -c 'exec /usr/bin/ypbind \
++  ${YPBIND_LOCAL_ONLY:+$([ "$YPBIND_LOCAL_ONLY" = yes ] && echo -local-only)} \
++  ${YPBIND_BROADCAST:+$([ "$YPBIND_BROADCAST" = yes ] && echo -broadcast)} \
++  ${YPBIND_BROKEN_SERVER:+$([ "$YPBIND_BROKEN_SERVER" = yes ] && echo -broken-server)} \
++  $YPBIND_OPTIONS'
