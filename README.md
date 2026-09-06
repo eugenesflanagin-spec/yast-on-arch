@@ -115,4 +115,4 @@ only when you open it. Root modules get a copy of your `kdeglobals`, so they mat
 
 Arch stand-ins live in `arch/`: `Pkg` (pacman-backed queries, no transactions),
 `InstURL`/`Packages`/`SLPAPI` (installer-only, no-ops) and a small `y2storage` shim
-until libstorage-ng is ported. Nothing needs the network at runtime.
+are built into the prefix for Boot Loader, NFS and Security. Nothing needs the network at runtime.

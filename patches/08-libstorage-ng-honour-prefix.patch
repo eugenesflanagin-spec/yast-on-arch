@@ -1,0 +1,234 @@
+diff --git a/data/Makefile.am b/data/Makefile.am
+index 7bf844c..994171a 100644
+--- a/data/Makefile.am
++++ b/data/Makefile.am
+@@ -5,6 +5,6 @@
+ EXTRA_DIST = udev-filters.json
+ 
+ install-data-local:
+-	install -d -m 755 $(DESTDIR)/usr/share/libstorage
+-	install -D -m 644 udev-filters.json $(DESTDIR)/usr/share/libstorage/
++	install -d -m 755 $(DESTDIR)$(datadir)/libstorage
++	install -D -m 644 udev-filters.json $(DESTDIR)$(datadir)/libstorage/
+ 
+diff --git a/integration-tests/bcache/Makefile.am b/integration-tests/bcache/Makefile.am
+index 7a9a995..288bd22 100644
+--- a/integration-tests/bcache/Makefile.am
++++ b/integration-tests/bcache/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/bcache
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/bcache
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/bcache
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/filesystems/Makefile.am b/integration-tests/filesystems/Makefile.am
+index e03e329..d0d6ae0 100644
+--- a/integration-tests/filesystems/Makefile.am
++++ b/integration-tests/filesystems/Makefile.am
+@@ -4,7 +4,7 @@
+ 
+ SUBDIRS = btrfs
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/filesystems
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/filesystems
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/filesystems/btrfs/Makefile.am b/integration-tests/filesystems/btrfs/Makefile.am
+index 5f8b1d2..2007318 100644
+--- a/integration-tests/filesystems/btrfs/Makefile.am
++++ b/integration-tests/filesystems/btrfs/Makefile.am
+@@ -4,7 +4,7 @@
+ 
+ SUBDIRS = multiple-devices quota
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/filesystems/btrfs
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/filesystems/btrfs
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/filesystems/btrfs/multiple-devices/Makefile.am b/integration-tests/filesystems/btrfs/multiple-devices/Makefile.am
+index a0f22e0..8a51154 100644
+--- a/integration-tests/filesystems/btrfs/multiple-devices/Makefile.am
++++ b/integration-tests/filesystems/btrfs/multiple-devices/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/filesystems/btrfs/multiple-devices
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/filesystems/btrfs/multiple-devices
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/filesystems/btrfs/multiple-devices
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/filesystems/btrfs/quota/Makefile.am b/integration-tests/filesystems/btrfs/quota/Makefile.am
+index be4c83d..e884d4f 100644
+--- a/integration-tests/filesystems/btrfs/quota/Makefile.am
++++ b/integration-tests/filesystems/btrfs/quota/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/filesystems/btrfs/quota
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/filesystems/btrfs/quota
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/filesystems/btrfs/quota
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/image/Makefile.am b/integration-tests/image/Makefile.am
+index 3fb5a51..75a9258 100644
+--- a/integration-tests/image/Makefile.am
++++ b/integration-tests/image/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/image
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/image
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/image
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/install/Makefile.am b/integration-tests/install/Makefile.am
+index 2bfa260..fa8ea12 100644
+--- a/integration-tests/install/Makefile.am
++++ b/integration-tests/install/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/install
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/install
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/install
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/luks/Makefile.am b/integration-tests/luks/Makefile.am
+index b94b8dd..c189f3a 100644
+--- a/integration-tests/luks/Makefile.am
++++ b/integration-tests/luks/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/luks
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/luks
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/luks
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/lvm/Makefile.am b/integration-tests/lvm/Makefile.am
+index f69fe3a..2dc70df 100644
+--- a/integration-tests/lvm/Makefile.am
++++ b/integration-tests/lvm/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/lvm
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/lvm
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/lvm
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/md/Makefile.am b/integration-tests/md/Makefile.am
+index 64dbeed..7158f00 100644
+--- a/integration-tests/md/Makefile.am
++++ b/integration-tests/md/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/md
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/md
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/md
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/misc/Makefile.am b/integration-tests/misc/Makefile.am
+index 3fa7e80..6467c2f 100644
+--- a/integration-tests/misc/Makefile.am
++++ b/integration-tests/misc/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/misc
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/misc
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/misc
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/mount-points/Makefile.am b/integration-tests/mount-points/Makefile.am
+index 835beeb..7e89ff0 100644
+--- a/integration-tests/mount-points/Makefile.am
++++ b/integration-tests/mount-points/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/mount-points
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/mount-points
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/mount-points
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/partition-tables/Makefile.am b/integration-tests/partition-tables/Makefile.am
+index 351efb7..e4364f6 100644
+--- a/integration-tests/partition-tables/Makefile.am
++++ b/integration-tests/partition-tables/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/partition-tables
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/partition-tables
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/partition-tables
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/partitions/Makefile.am b/integration-tests/partitions/Makefile.am
+index 57e1e74..5b91b04 100644
+--- a/integration-tests/partitions/Makefile.am
++++ b/integration-tests/partitions/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/partitions
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/partitions
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/partitions
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/plain-encryption/Makefile.am b/integration-tests/plain-encryption/Makefile.am
+index dc22f9e..36e3bfc 100644
+--- a/integration-tests/plain-encryption/Makefile.am
++++ b/integration-tests/plain-encryption/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/plain-encryption
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/plain-encryption
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/plain-encryption
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/integration-tests/pools/Makefile.am b/integration-tests/pools/Makefile.am
+index 778a811..8783866 100644
+--- a/integration-tests/pools/Makefile.am
++++ b/integration-tests/pools/Makefile.am
+@@ -2,7 +2,7 @@
+ # Makefile.am for libstorage/integration-tests/pools
+ #
+ 
+-integration_testsdir = /usr/lib/libstorage-ng/integration-tests/pools
++integration_testsdir = $(libdir)/libstorage-ng/integration-tests/pools
+ 
+ integration_tests_SCRIPTS = *.py
+ 
+diff --git a/utils/Makefile.am b/utils/Makefile.am
+index 73855e9..0bfbed9 100644
+--- a/utils/Makefile.am
++++ b/utils/Makefile.am
+@@ -6,7 +6,7 @@ AM_CPPFLAGS = -I$(top_srcdir)
+ 
+ LDADD = ../storage/libstorage-ng.la
+ 
+-libexecdir = /usr/lib/libstorage-ng/utils
++libexecdir = $(libdir)/libstorage-ng/utils
+ 
+ libexec_PROGRAMS = display probe humanstring
+ 

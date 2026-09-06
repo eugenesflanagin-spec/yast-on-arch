@@ -15,9 +15,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 PACMAN_DEPS=(cmake ninja boost qt5-base gtk3 ncurses gettext libxcrypt pkgconf git
              ruby ruby-rake bison flex libtool automake autoconf dejagnu
-             docbook-xsl libxslt perl-xml-writer fdupes ruby-nokogiri ruby-augeas augeas)
+             docbook-xsl libxslt perl-xml-writer fdupes ruby-nokogiri ruby-augeas augeas
+             libxml2 json-c swig)
 # fast_gettext MUST be <3.0; Arch ships 3.1.0, so we pin it in the user gem dir.
-GEM_DEPS=("fast_gettext:<3.0" cheetah simpleidn abstract_method yast-rake prime cfa)
+GEM_DEPS=("fast_gettext:<3.0" cheetah simpleidn abstract_method yast-rake prime cfa cfa_grub2)
 
 say() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -162,15 +163,29 @@ if [[ -f $MENU ]] && ! grep -q YAST_Y2BASE "$MENU"; then
              s|/sbin/yast %1 %2|$PREFIX/lib/YaST2/bin/y2base %1 ncurses %2|" "$MENU"
 fi
 
-# Arch stand-ins for namespaces that cannot exist here (see arch/*/ headers):
+# ------------------------------------------------------------- libstorage-ng
+# Storage layer for Bootloader, NFS, Security. Patch 08: honour --prefix in the
+# three Makefile.am places that hardcode /usr. ⛔ No blanket DESTDIR here: only
+# the Ruby extension dir is a system path, everything else is prefix-rooted,
+# so DESTDIR would double-prefix the C++ library. Override that one dir instead.
+say "Building libstorage-ng (+ Ruby bindings) and installing yast-storage-ng"
+RB="$PREFIX/destdir/usr/lib/ruby/vendor_ruby/$(ruby -e 'puts RbConfig::CONFIG["ruby_version"]')/$(ruby -e 'puts RbConfig::CONFIG["arch"]')"
+clone https://github.com/openSUSE/libstorage-ng.git libstorage-ng
+( cd libstorage-ng
+  grep -q 'datadir)/libstorage' data/Makefile.am || patch -s -p1 < "$HERE/patches/08-libstorage-ng-honour-prefix.patch"
+  libtoolize -q && aclocal && autoconf && autoheader && automake --add-missing --foreign >/dev/null 2>&1
+  utils/git2log --version VERSION
+  ./configure --prefix="$PREFIX" --libdir="$PREFIX/lib" >/dev/null
+  make -j"$(nproc)" >/dev/null && make install rubyextensiondirdir="$RB" >/dev/null )
+clone https://github.com/yast/yast-storage-ng.git yast-storage-ng
+( cd yast-storage-ng && rake install DESTDIR="$PREFIX/destdir" >/dev/null 2>&1 ) && echo "  ok   yast-storage-ng"
+
+# Arch stand-ins for namespaces that cannot exist here (see arch/modules/*.rb):
 #   Pkg      -- libzypp bindings; pacman-backed queries, transactions refused
 #   InstURL, Packages, SLPAPI -- installer/SLP-only, no-ops
-#   y2storage -- tiny shim for "is / on NFS / read-only" until libstorage-ng
-#                is ported (remove lib/y2storage* when it is)
 say "Installing Arch stand-in modules"
 Y2="$PREFIX/destdir/usr/share/YaST2"
 for f in "$HERE"/arch/modules/*.rb; do install -Dm644 "$f" "$Y2/modules/$(basename "$f")"; done
-( cd "$HERE/arch/lib" && find . -type f -name '*.rb' -exec install -Dm644 {} "$Y2/lib/{}" \; )
 
 # FIX: the Ruby layer hardcodes /usr for desktop files/data; follow Y2DIR instead.
 if ! grep -q 'ARCH PORT' "$Y2/modules/Directory.rb"; then

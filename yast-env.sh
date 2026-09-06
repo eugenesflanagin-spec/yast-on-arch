@@ -36,3 +36,7 @@ echo "YaST-on-Arch env active (prefix: $P)"
 # which looks like a build failure but is only @INC.
 PERLVER="$(perl -V:version 2>/dev/null | sed "s/.*='//;s/'.*//" | cut -d. -f1,2)"
 export PERL5LIB="$P/lib/perl5/${PERLVER:-5.42}/vendor_perl:$P/share/perl5/vendor_perl${PERL5LIB:+:$PERL5LIB}"
+
+# libstorage-ng hardcodes /usr/share/libstorage for its udev filters; upstream's
+# own escape hatch is LIBSTORAGE_CONFDIR (checked first in UdevFilters.cc).
+export LIBSTORAGE_CONFDIR="$P/share/libstorage"
