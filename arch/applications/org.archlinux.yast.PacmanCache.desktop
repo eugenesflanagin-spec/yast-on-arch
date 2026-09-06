@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Categories=Settings;System;Qt;X-SuSE-YaST;X-SuSE-YaST-Software;
+
+X-KDE-ModuleType=Library
+X-SuSE-YaST-Call=pacman_cache
+X-SuSE-YaST-Group=Software
+X-SuSE-YaST-Argument=
+X-SuSE-YaST-SortKey=06
+X-SuSE-YaST-RootOnly=true
+X-SuSE-YaST-Keywords=cache,clean,pacman,paccache
+
+Icon=octopi
+Exec=xdg-su -c "/usr/bin/yast2 pacman_cache"
+
+Name=Package Cache Cleaner
+GenericName=Clean pacman cache
+Comment=Remove old or unneeded packages from /var/cache/pacman/pkg (paccache)
+StartupNotify=true

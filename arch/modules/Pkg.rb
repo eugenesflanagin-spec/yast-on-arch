@@ -7,10 +7,10 @@
 #   "component cannot import namespace 'Pkg'".
 #
 # This module makes the import succeed. Query-type calls are answered from
-# pacman where that is meaningful (installed? version compare?); everything
-# that would touch repositories, the solver or a transaction is a logged no-op
-# returning a type-correct empty/false value. Nothing here ever installs or
-# removes a package.
+# pacman where that is meaningful (installed? version compare?); repositories
+# and the solver are typed no-ops. Nothing here ever runs pacman -S/-R: when a
+# module needs a package that is missing, PkgCommit shows the exact pacman
+# command for the user to run and reports the install as failed.
 #
 # Part of yast-on-arch: https://github.com/eugenesflanagin-spec/yast-on-arch
 require "yast"
@@ -42,6 +42,12 @@ module Yast
       "apparmor-profiles" => "apparmor", "dhcp-server" => "dhcp", "krb5-client" => "krb5",
       "krb5-plugin-preauth-pkinit-nss" => "krb5", "qemu" => "qemu-base", "kvm" => "qemu-base",
       "openldap2-client" => "openldap", "openldap2" => "openldap", "ypbind" => "ypbind-mt",
+      # Boot Loader's "prepare system" list. Arch's single grub package covers every
+      # firmware target; shim/mokutil (openSUSE Secure Boot) have no repo package and
+      # Arch GRUB boots EFI without them, so they are satisfied by grub as well.
+      "grub2" => "grub", "grub2-x86_64-efi" => "grub", "grub2-i386-pc" => "grub",
+      "grub2-arm64-efi" => "grub", "shim" => "grub", "mokutil" => "grub",
+      "grub2-branding-openSUSE" => nil, "perl-Bootloader" => nil,
       "yp-tools" => "yp-tools", "nscd" => nil, "wicked" => nil, "ndiswrapper" => nil, "xen" => nil,
     }.freeze
     # packages that are "the system itself" here -- always considered installed
@@ -128,12 +134,11 @@ module Yast
     def PkgNeutral(_n)                        = true
     def ResolvableNeutral(*_a)                = true
 
-    # ------------------------------ transactions: installs go through pacman
-    # A module asks "package X is missing, install it?"; when the user says yes
-    # YaST calls PkgInstall(x) then PkgCommit. We queue the Arch name(s) and run
-    # `pacman -S --needed` on commit (root only; the module already is).
-    # Removals are refused: nothing in these modules needs them and a YaST
-    # mistake must never uninstall from an Arch box.
+    # ---------------------------- transactions: queued, shown, never executed
+    # A module asks "package X is missing, install it?"; YaST then calls
+    # PkgInstall(x) and PkgCommit. We resolve the Arch name(s) so the hint is
+    # correct, and PkgCommit hands the pacman command to the user instead of
+    # running it. Removals are refused outright.
     def PkgInstall(n)
       arch = arch_names(n)
       if arch.empty?
@@ -157,18 +162,29 @@ module Yast
       pkgs = @to_install.dup
       @to_install = []
       return [[], [], [], []] if pkgs.empty?
-      unless Process.uid.zero?
-        @last_error = "pacman needs root; run this module with `yast -r`"
-        log.error "Pkg (Arch stub): #{@last_error}"
-        return [[], pkgs, [], []]
+      # NEVER executes pacman. Two unattended runs today showed that a YaST
+      # "Install?" prompt can be answered by things other than a human (a
+      # closed stdin in ncurses, a stray click), so this stand-in only tells
+      # the user what to run and reports the packages as not installed.
+      cmd = "sudo pacman -S --needed #{pkgs.join(' ')}"
+      @last_error = "not installed automatically on Arch; run: #{cmd}"
+      log.warn "Pkg (Arch stub): refusing to install #{pkgs.join(' ')}; user must run: #{cmd}"
+      begin
+        Yast.import "Mode"
+        unless Mode.commandline
+          Yast.import "Popup"
+          Popup.LongText(
+            "Packages needed by this module",
+            "<p>YaST on Arch does not install packages by itself.</p>" \
+            "<p>Install them in a terminal, then reopen the module:</p>" \
+            "<pre>#{cmd}</pre>",
+            60, 8
+          )
+        end
+      rescue StandardError => e
+        log.error "Pkg (Arch stub): could not show the install hint (#{e.message})"
       end
-      cmd = ["pacman", "-S", "--needed", "--noconfirm", "--noprogressbar", *pkgs]
-      log.info "Pkg (Arch stub): running #{cmd.join(' ')}"
-      out = IO.popen(cmd, err: [:child, :out], &:read)
-      ok = $?.success?
-      log.send(ok ? :info : :error, "Pkg (Arch stub): pacman exit #{$?.exitstatus}: #{out.to_s[-800..] || out}")
-      @last_error = ok ? "" : out.to_s.lines.last(5).join
-      ok ? [pkgs, [], [], []] : [[], pkgs, [], []]
+      [[], pkgs, [], []]
     end
     def Commit(_cfg = {})     = PkgCommit(0)
 

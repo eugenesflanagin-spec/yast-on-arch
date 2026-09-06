@@ -13,9 +13,9 @@ export LD_LIBRARY_PATH="$P/lib:$P/lib/yui:$LD_LIBRARY_PATH"
 # invisible. Tee everything to a log in that case.
 # (YAST_LOG_DIRECT=1 means the caller already redirected stderr into that log,
 # e.g. the Qt Control Center -- tee-ing again would double every line.)
-if [ ! -t 2 ] && [ -z "${YAST_LOG_DIRECT:-}" ]; then
+if [ ! -t 2 ]; then
   YAST_LOG="${XDG_RUNTIME_DIR:-/tmp}/yast-on-arch.log"
-  exec 2> >(tee -a "$YAST_LOG" >&2)
+  [ -z "${YAST_LOG_DIRECT:-}" ] && exec 2> >(tee -a "$YAST_LOG" >&2)
   echo "--- $(date "+%F %T") launch: $* ---" >&2
 fi
 UI=ncurses; ASROOT=0

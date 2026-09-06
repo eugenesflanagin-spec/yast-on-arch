@@ -152,7 +152,7 @@ yast-proxy yast-tftp-server yast-vpn yast-pam"
 #   10 yast-yast2 Arch.rb: uname -m fallback (no libhd .probe agent here)
 #   11 yast-yast2 PackageSystem.rb: ask the pacman-backed Pkg instead of rpm
 declare -A REPO_PATCHES=(
-  [yast-bootloader]="09-bootloader-arch-grub-paths"
+  [yast-bootloader]="09-bootloader-arch-grub-paths 12-bootloader-write-guard"
   [yast-yast2]="10-yast2-arch-uname-fallback 11-packagesystem-no-rpm"
 )
 for m in $MODULES; do
@@ -221,6 +221,7 @@ done
 # Software group at Octopi (pacman/AUR) instead.
 if command -v octopi >/dev/null; then
   mkdir -p "$D"
+  rm -f "$D/org.archlinux.yast.OctopiCache.desktop"   # replaced by arch/clients/pacman_cache.rb
   cat > "$D/org.archlinux.yast.Octopi.desktop" <<'EOD'
 [Desktop Entry]
 Type=Application

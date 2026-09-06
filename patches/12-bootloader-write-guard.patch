@@ -1,0 +1,17 @@
+--- a/src/modules/Bootloader.rb
++++ b/src/modules/Bootloader.rb
+@@ -268,6 +268,14 @@
+ 
+       # Prepare system
+       progress_state = Progress.set(false)
++      # ARCH PORT SAFETY: writing GRUB on this port is opt-in. Until the Qt
++      # auto-accept problem is understood, refuse unless explicitly allowed.
++      unless ENV["YAST_ALLOW_BOOTLOADER_WRITE"] == "1"
++        log.error("Bootloader.Write refused: set YAST_ALLOW_BOOTLOADER_WRITE=1 to allow writing GRUB")
++        Yast2::Popup.show(_("Writing the boot loader configuration is disabled on this port.\n" \
++          "Nothing was changed. (Start yast with YAST_ALLOW_BOOTLOADER_WRITE=1 to enable it.)"))
++        return false
++      end
+       if !::Bootloader::BootloaderFactory.current.prepare
+         log.error("System could not be prepared successfully, required packages were not installed")
+         Yast2::Popup.show(_("Cannot continue without install required packages"))
