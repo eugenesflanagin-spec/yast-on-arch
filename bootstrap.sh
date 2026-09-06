@@ -160,6 +160,7 @@ declare -A REPO_PATCHES=(
   [yast-users]="13-users-x500dn-lazy-require"
   [yast-security]="14-security-live-sysctl-values"
   [yast-country]="16-country-language-posix-locale 17-country-console-magic-no-sysconfig"
+  [yast-tftp-server]="18-tftp-arch-confd-and-units"
 )
 for m in $MODULES; do
   clone "https://github.com/yast/$m.git" "$m" || continue

@@ -1,0 +1,382 @@
+diff --git a/src/lib/cfa/tftp_sysconfig.rb b/src/lib/cfa/tftp_sysconfig.rb
+index d941086..d5d03aa 100644
+--- a/src/lib/cfa/tftp_sysconfig.rb
++++ b/src/lib/cfa/tftp_sysconfig.rb
+@@ -1,19 +1,189 @@
+ require "cfa/base_model"
+ require "cfa/augeas_parser"
++require "shellwords"
+ 
+ module CFA
++  # Configuration of the tftp server.
++  #
++  # ARCH PORT
++  # ---------
++  # On SUSE this reads /etc/sysconfig/tftp, which holds three separate keys
++  # (TFTP_USER, TFTP_DIRECTORY, TFTP_OPTIONS).  Arch has no /etc/sysconfig at
++  # all, so the original path does not exist and CFA's load raised
++  # Errno::ENOENT, killing the whole tftp-server client before it drew a single
++  # dialog ("Client .../tftp-server.rb failed with 'No such file or directory
++  # @ rb_sysopen - /etc/sysconfig/tftp'").
++  #
++  # Arch's tftp-hpa ships the equivalent file at a different path and in a
++  # different shape -- /usr/lib/systemd/system/tftpd.service has:
++  #
++  #     EnvironmentFile=/etc/conf.d/tftpd
++  #     ExecStart=/usr/bin/in.tftpd --listen $TFTPD_ARGS
++  #
++  # so every setting lives in ONE shell variable, e.g. the stock file is:
++  #
++  #     TFTPD_ARGS="--secure /srv/tftp/"
++  #
++  # This model therefore keeps the same three-attribute interface the rest of
++  # the module already uses (#user, #directory, #options) but derives them from
++  # (and recomposes them into) that single string.  Nothing outside this file
++  # has to know that Arch packs them together.
+   class TftpSysconfig < BaseModel
+-    attributes(
+-      user:      "TFTP_USER",
+-      directory: "TFTP_DIRECTORY",
+-      options:   "TFTP_OPTIONS"
+-    )
++    # The single variable tftpd.service expands into in.tftpd's argv.
++    attributes(args: "TFTPD_ARGS")
+ 
+-    PATH = "/etc/sysconfig/tftp".freeze
++    PATH = "/etc/conf.d/tftpd".freeze
++
++    # in.tftpd options that consume the NEXT token as their value.  Taken from
++    # in.tftpd(8) -- note --secure/-s, --create/-c, --permissive/-p,
++    # --foreground/-f, --listen/-l and --verbose/-v take none, which is why a
++    # plain list of "flags" is not enough to find the directory.
++    VALUE_FLAGS = [
++      "-a", "--address",
++      "-B", "--blocksize",
++      "-m", "--mapfile",
++      "-P", "--pidfile",
++      "-r", "--refuse",
++      "-R", "--port-range",
++      "-T", "--timeout",
++      "-t", "--retransmit",
++      "-u", "--user",
++      "-U", "--umask",
++      "-V", "--verbosity"
++    ].freeze
++
++    USER_FLAGS = ["-u", "--user"].freeze
++
++    # in.tftpd's own default when --user is not given.
++    DEFAULT_USER = "nobody".freeze
+ 
+     def initialize(file_handler: nil)
+-      super(AugeasParser.new("sysconfig.lns"), PATH,
+-        file_handler: file_handler)
++      super(AugeasParser.new("sysconfig.lns"), PATH, file_handler: file_handler)
++    end
++
++    # Tolerate the file being absent.
++    #
++    # tftp-hpa does ship /etc/conf.d/tftpd, but a missing file must mean "no
++    # settings yet, use defaults" rather than an exception that takes the whole
++    # client down -- that is the exact bug this port is fixing, and it should
++    # not simply move to a new path.
++    def load
++      super
++    rescue Errno::ENOENT
++      self.data = @parser.empty
++      @loaded = true
++    end
++
++    # The directory served, i.e. the last positional (non-option) token.
++    # @return [String] "" when TFTPD_ARGS names no directory
++    def directory
++      positional_args.last || ""
++    end
++
++    def directory=(value)
++      self.args = compose(option_args, value)
++    end
++
++    # The user in.tftpd drops privileges to.
++    #
++    # Never returns nil: TftpServer#WriteOnly interpolates this straight into
++    # "chown #{user}: dir", and "chown : dir" is a syntax error.
++    # @return [String]
++    def user
++      tokens = arg_tokens
++      idx = tokens.index { |t| USER_FLAGS.include?(t) }
++      value = idx && tokens[idx + 1]
++      value && !value.empty? ? value : DEFAULT_USER
++    end
++
++    def user=(value)
++      opts = strip_user_flag(option_args)
++      opts += ["--user", value.to_s] unless value.nil? || value.to_s.empty?
++      self.args = compose(opts, directory)
++    end
++
++    # Everything that is not the user flag or the directory, preserved verbatim
++    # (so --secure, --create, --blocksize 1428 and friends survive a save).
++    # @return [String]
++    def options
++      Shellwords.join(strip_user_flag(option_args))
++    end
++
++    def options=(value)
++      opts = Shellwords.split(value.to_s)
++      u = user
++      opts += ["--user", u] unless u == DEFAULT_USER || opts.any? { |t| USER_FLAGS.include?(t) }
++      self.args = compose(opts, directory)
++    end
++
++  private
++
++    def arg_tokens
++      Shellwords.split(args.to_s)
++    rescue ArgumentError # unbalanced quotes in a hand-edited file
++      args.to_s.split
++    end
++
++    # Tokens that belong to options (flags and their values), i.e. everything
++    # except the positional directory arguments.
++    def option_args
++      tokens = arg_tokens
++      out = []
++      expect_value = false
++      tokens.each do |t|
++        if expect_value
++          out << t
++          expect_value = false
++        elsif t.start_with?("-")
++          out << t
++          expect_value = VALUE_FLAGS.include?(t)
++        end
++      end
++      out
++    end
++
++    def positional_args
++      tokens = arg_tokens
++      out = []
++      expect_value = false
++      tokens.each do |t|
++        if expect_value
++          expect_value = false
++        elsif t.start_with?("-")
++          expect_value = VALUE_FLAGS.include?(t)
++        else
++          out << t
++        end
++      end
++      out
++    end
++
++    # Drop "--user X" from a token list, keeping every other flag and its value.
++    def strip_user_flag(opts)
++      out = []
++      skip = false
++      opts.each_with_index do |t, i|
++        if skip
++          skip = false
++          next
++        end
++        if USER_FLAGS.include?(t)
++          skip = true # also drop its value
++          next
++        end
++        out << t
++        if VALUE_FLAGS.include?(t) && opts[i + 1]
++          out << opts[i + 1]
++          skip = true
++        end
++      end
++      out
++    end
++
++    def compose(opts, dir)
++      tokens = Array(opts)
++      tokens += [dir.to_s] unless dir.nil? || dir.to_s.empty?
++      Shellwords.join(tokens)
+     end
+   end
+ end
+diff --git a/src/modules/TftpServer.rb b/src/modules/TftpServer.rb
+index 92068bb..95dce37 100644
+--- a/src/modules/TftpServer.rb
++++ b/src/modules/TftpServer.rb
+@@ -24,7 +24,13 @@ module Yast
+   class TftpServerClass < Module
+     include Yast::Logger
+ 
+-    SOCKET_NAME = "tftp"
++    # ARCH PORT: Arch's tftp-hpa names its units tftpd.socket / tftpd.service,
++    # where SUSE's tftp package uses tftp.socket / tftp.service.  The PACKAGE
++    # name is deliberately left as the SUSE one: the port's Pkg stand-in already
++    # maps it via NAME_MAP ("tftp" => "tftp-hpa"), so translating it here too
++    # would double-map it.  Only the systemd unit names differ.
++    SOCKET_NAME = "tftpd"
++    SERVICE_NAME = "tftpd"
+     PACKAGE_NAME = "tftp"
+ 
+     # @!method start
+@@ -57,7 +63,8 @@ module Yast
+       @sysconfig = ::CFA::TftpSysconfig.new
+       # sysconfig values we are interested in. Allow to change it with UI.
+       # TODO when doing bigger changes use sysconfig model everywhere
+-      @directory = "/srv/tftpboot" # default value
++      # ARCH PORT: tftp-hpa ships /srv/tftp (SUSE's tftp uses /srv/tftpboot)
++      @directory = "/srv/tftp" # default value
+ 
+       # Detect who is serving tftp:
+       # Systemd may be running, it is the default. But it is ok unless it is
+@@ -71,7 +78,7 @@ module Yast
+     #
+     # @return [Yast2::SystemService]
+     def service
+-      @service ||= Yast2::SystemService.find(PACKAGE_NAME)
++      @service ||= Yast2::SystemService.find(SERVICE_NAME)
+     end
+ 
+     # firewall instance
+@@ -197,7 +204,7 @@ module Yast
+       if Mode.auto || Mode.commandline
+         # in.tftpd will linger around for 15 minutes waiting for a new connection
+         # so we must kill it otherwise it will be using the old parameters
+-        Yast2::Systemd::Service.find!("tftp").stop
++        Yast2::Systemd::Service.find!(SERVICE_NAME).stop
+       else
+         service.save
+       end
+@@ -216,7 +223,7 @@ module Yast
+     def Set(settings)
+       settings = deep_copy(settings)
+       @start = Ops.get_boolean(settings, "start_tftpd", false)
+-      @directory = Ops.get_string(settings, "tftp_directory", "/srv/tftpboot")
++      @directory = Ops.get_string(settings, "tftp_directory", "/srv/tftp")
+ 
+       nil
+     end
+diff --git a/test/cfa/tftp_sysconfig_test.rb b/test/cfa/tftp_sysconfig_test.rb
+index ffd2b22..51b8d3a 100644
+--- a/test/cfa/tftp_sysconfig_test.rb
++++ b/test/cfa/tftp_sysconfig_test.rb
+@@ -3,7 +3,15 @@ require_relative "../test_helper"
+ require "cfa/memory_file"
+ require "cfa/tftp_sysconfig"
+ 
++# ARCH PORT: the fixture is Arch's /etc/conf.d/tftpd, which packs every setting
++# into one TFTPD_ARGS string, rather than SUSE's /etc/sysconfig/tftp with its
++# three separate TFTP_* keys.  See CFA::TftpSysconfig for why.
+ describe CFA::TftpSysconfig do
++  def model_for(content)
++    handler = CFA::MemoryFile.new(content)
++    described_class.new(file_handler: handler).tap(&:load)
++  end
++
+   let(:file_handler) do
+     file_path = File.expand_path("../../data/tftp_sysconfig", __FILE__)
+     CFA::MemoryFile.new(File.read(file_path))
+@@ -18,19 +26,65 @@ describe CFA::TftpSysconfig do
+   end
+ 
+   describe "#load" do
+-    it "loads all attributes" do
+-      expect(subject.user).to eq "tftp"
+-      expect(subject.directory).to eq "/srv/tftpboot"
+-      expect(subject.options).to eq ""
++    it "derives the attributes from TFTPD_ARGS" do
++      expect(subject.directory).to eq "/srv/tftp/"
++      expect(subject.options).to eq "--secure"
++    end
++
++    it "falls back to in.tftpd's own default user when --user is absent" do
++      expect(subject.user).to eq "nobody"
++    end
++
++    it "reads an explicit --user" do
++      expect(model_for('TFTPD_ARGS="--secure --user tftp /srv/tftp"').user).to eq "tftp"
++    end
++
++    it "understands the short -u form and keeps it out of the options" do
++      model = model_for('TFTPD_ARGS="-u nobody -s /srv/tftp"')
++      expect(model.user).to eq "nobody"
++      expect(model.directory).to eq "/srv/tftp"
++      expect(model.options).to eq "-s"
++    end
++
++    it "does not mistake a value-taking flag's value for the directory" do
++      model = model_for('TFTPD_ARGS="--secure --blocksize 1428 /srv/tftp"')
++      expect(model.directory).to eq "/srv/tftp"
++      expect(model.options).to eq "--secure --blocksize 1428"
++    end
++
++    it "copes with no directory at all" do
++      expect(model_for('TFTPD_ARGS="--secure"').directory).to eq ""
++    end
++
++    # The bug this port fixes: a missing file must not raise, or the whole
++    # tftp-server client dies before drawing a dialog.
++    it "treats a missing file as an empty configuration" do
++      handler = double("handler")
++      allow(handler).to receive(:read).and_raise(Errno::ENOENT)
++      model = described_class.new(file_handler: handler)
++      expect { model.load }.to_not raise_error
++      expect(model.directory).to eq ""
++      expect(model.user).to eq "nobody"
+     end
+   end
+ 
+   describe "#save" do
+-    it "stores properly attributes" do
++    it "writes the user back into TFTPD_ARGS, preserving the other options" do
+       subject.user = "root"
+       subject.save
+ 
+-      expect(file_handler.content.lines).to include("TFTP_USER=\"root\"\n")
++      expect(file_handler.content).to include("--user root")
++      expect(file_handler.content).to include("--secure")
++      expect(file_handler.content).to include("/srv/tftp/")
++    end
++
++    it "replaces the directory without disturbing the options" do
++      subject.directory = "/srv/tftpboot"
++      subject.save
++
++      expect(subject.directory).to eq "/srv/tftpboot"
++      expect(subject.options).to eq "--secure"
++      expect(file_handler.content).to include("TFTPD_ARGS")
+     end
+   end
+ end
+diff --git a/test/data/tftp_sysconfig b/test/data/tftp_sysconfig
+index 3a4e8e5..f910f17 100644
+--- a/test/data/tftp_sysconfig
++++ b/test/data/tftp_sysconfig
+@@ -1,26 +1 @@
+-## Description: TFTP Configuration
+-## Type:    string
+-## Default: "tftp"
+-#
+-#  daemon user (tftp)
+-#
+-TFTP_USER="tftp"
+-
+-## Type:    string
+-## Default: ""
+-##
+-## INFO:
+-#
+-# tftp options
+-#
+-TFTP_OPTIONS=""
+-
+-## Type:    string
+-## Default: "/srv/tftpboot"
+-## was "/tftpboot" but
+-## "/tftpboot" is not allowed anymore in FHS 2.2.
+-#
+-#  TFTP directory must be a world readable/writable directory.
+-#  By default /srv/tftpboot is assumed.
+-#
+-TFTP_DIRECTORY="/srv/tftpboot"
++TFTPD_ARGS="--secure /srv/tftp/"

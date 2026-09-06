@@ -48,6 +48,9 @@ module Yast
       "grub2" => "grub", "grub2-x86_64-efi" => "grub", "grub2-i386-pc" => "grub",
       "grub2-arm64-efi" => "grub", "shim" => "grub", "mokutil" => "grub",
       "grub2-branding-openSUSE" => nil, "perl-Bootloader" => nil,
+      # remote (VNC) module: Xvnc comes from tigervnc, noVNC is its own package;
+      # SUSE's vncmanager session broker has no Arch counterpart.
+      "xorg-x11-Xvnc" => "tigervnc", "xorg-x11-Xvnc-novnc" => "novnc", "vncmanager" => nil,
       "yp-tools" => "yp-tools", "nscd" => nil, "wicked" => nil, "ndiswrapper" => nil, "xen" => nil,
     }.freeze
     # packages that are "the system itself" here -- always considered installed
@@ -173,11 +176,13 @@ module Yast
         Yast.import "Mode"
         unless Mode.commandline
           Yast.import "Popup"
+          # LongText wants a UI term, not a String (a String logs "Invalid cast")
           Popup.LongText(
             "Packages needed by this module",
-            "<p>YaST on Arch does not install packages by itself.</p>" \
-            "<p>Install them in a terminal, then reopen the module:</p>" \
-            "<pre>#{cmd}</pre>",
+            Yast::Term.new(:RichText,
+              "<p>YaST on Arch does not install packages by itself.</p>" \
+              "<p>Install them in a terminal, then reopen the module:</p>" \
+              "<pre>#{cmd}</pre>"),
             60, 8
           )
         end
