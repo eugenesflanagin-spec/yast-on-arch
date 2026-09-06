@@ -151,10 +151,13 @@ yast-proxy yast-tftp-server yast-vpn yast-pam"
 #   09 yast-bootloader: grub-* binaries and /boot/grub instead of grub2-* and /boot/grub2
 #   10 yast-yast2 Arch.rb: uname -m fallback (no libhd .probe agent here)
 #   11 yast-yast2 PackageSystem.rb: ask the pacman-backed Pkg instead of rpm
+#   14 yast-security: show live /proc/sys values when no sysctl file sets a key
+#   15 yast-yast2 ShadowConfig: edit /etc/login.defs itself (no login.defs.d on Arch)
 declare -A REPO_PATCHES=(
   [yast-bootloader]="09-bootloader-arch-grub-paths 12-bootloader-write-guard"
-  [yast-yast2]="10-yast2-arch-uname-fallback 11-packagesystem-no-rpm"
+  [yast-yast2]="10-yast2-arch-uname-fallback 11-packagesystem-no-rpm 15-yast2-shadow-config-no-login-defs-d"
   [yast-users]="13-users-x500dn-lazy-require"
+  [yast-security]="14-security-live-sysctl-values"
 )
 for m in $MODULES; do
   clone "https://github.com/yast/$m.git" "$m" || continue

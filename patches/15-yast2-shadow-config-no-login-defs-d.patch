@@ -1,0 +1,24 @@
+--- a/library/general/src/lib/cfa/shadow_config.rb
++++ b/library/general/src/lib/cfa/shadow_config.rb
+@@ -40,5 +40,21 @@
+     self.file_name = "login.defs"
+     self.yast_file_name = "70-yast.defs"
+     self.file_class = LoginDefs
++
++  private
++
++    # ARCH PORT: shadow on Arch (upstream shadow, no SUSE patch) does not read
++    # /etc/login.defs.d/, so a 70-yast.defs there is invisible to the system
++    # while YaST would keep showing its values. When that directory does not
++    # exist, edit /etc/login.defs itself (augeas keeps the file's layout).
++    def yast_file_path
++      return super if Yast::FileUtils.Exists(override_directory(local_file_path))
++
++      @yast_file_path ||= local_file_path
++    end
++
++    def local_override_paths
++      super - [local_file_path]
++    end
+   end
+ end

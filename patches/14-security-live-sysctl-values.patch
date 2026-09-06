@@ -1,0 +1,31 @@
+--- a/src/modules/Security.rb
++++ b/src/modules/Security.rb
+@@ -1030,7 +1030,27 @@
+ 
+     # @param key [String] Key to get the value for
+     def read_sysctl_value(key)
+-      sysctl_config.public_send(SYSCTL_KEY_TO_METH[key])
++      meth = SYSCTL_KEY_TO_METH[key]
++      # ARCH PORT: when no sysctl file sets the key (Arch has no /etc/sysctl.conf
++      # and no 70-yast.conf until YaST writes one), show what the kernel actually
++      # runs instead of the openSUSE default -- otherwise the dialog claims
++      # "IPv4 forwarding: disabled" on a box where Docker turned it on, and OK
++      # would write that wrong default to /etc/sysctl.d/70-yast.conf.
++      configured = begin
++        sysctl_config.send(:files).any? { |f| f.present?(meth) }
++      rescue StandardError
++        true
++      end
++      return sysctl_config.public_send(meth) if configured
++
++      live = begin
++        File.read("/proc/sys/#{key.tr(".", "/")}").strip
++      rescue StandardError
++        nil
++      end
++      return nil if live.nil?
++
++      [TrueClass, FalseClass].include?(@sysctl[key].class) ? live == "1" : live
+     end
+ 
+     # @param key    [String] Key to set the value for
