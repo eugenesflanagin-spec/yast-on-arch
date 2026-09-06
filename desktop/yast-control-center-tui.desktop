@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=YaST Control Center (Text Mode)
+GenericName=System Configuration
+Comment=Classic blue ncurses YaST in a terminal
+Exec=konsole -e $HOME/libyui-port/yast -r menu
+Icon=utilities-terminal
+Terminal=false
+Categories=Settings;
+Keywords=yast;ncurses;text;tui;blue;
+StartupNotify=true

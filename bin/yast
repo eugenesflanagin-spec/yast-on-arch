@@ -1,0 +1,45 @@
+#!/bin/bash
+# YaST on Arch Linux -- ported 2026-09-06.
+#   ~/libyui-port/yast                     -> list available modules
+#   ~/libyui-port/yast services-manager    -> run in ncurses (classic blue TUI)
+#   ~/libyui-port/yast -q services-manager -> run with the Qt frontend
+P="$HOME/libyui-port/prefix"
+source "$HOME/libyui-port/yast-env.sh" >/dev/null 2>&1
+export Y2DIR="$P/destdir/usr/share/YaST2"
+export RUBYLIB="$P/destdir/usr/share/YaST2/lib:$RUBYLIB"
+export LD_LIBRARY_PATH="$P/lib:$P/lib/yui:$LD_LIBRARY_PATH"
+UI=ncurses; ASROOT=0
+while :; do case "${1:-}" in
+  -q) UI=qt;  shift ;;
+  -g) UI=gtk; shift ;;
+  -r) ASROOT=1; shift ;;
+  *) break ;;
+esac; done
+# dark mode for the GTK front-end (and Qt via the platform theme)
+if [ "$UI" = "gtk" ]; then
+  export GTK_THEME="${YAST_GTK_THEME:-Adwaita:dark}"
+  export GTK_APPLICATION_PREFER_DARK_THEME=1
+fi
+if [ -z "$1" ]; then
+    echo "YaST on Arch  (prefix: $P)"
+    echo "usage: yast [-q|-g] <module>   (-q = Qt GUI, -g = GTK GUI dark, default ncurses)"
+    echo
+    echo "available clients:"
+    ls "$Y2DIR/clients"/*.rb 2>/dev/null | xargs -n1 basename | sed 's/\.rb$//' | sed 's/^/  /'
+    exit 0
+fi
+if [ "$ASROOT" = 1 ] && [ "$(id -u)" != 0 ]; then
+  # YaST checks Process.uid == 0 literally -- being in wheel is not enough.
+  # sudo resets the environment, so pass the port's paths through explicitly.
+  PASS="RUBYLIB=$RUBYLIB Y2DIR=$Y2DIR LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+  PASS="$PASS GEM_PATH=$GEM_PATH PATH=$PATH Y2BASE_PLUGINDIR=$Y2BASE_PLUGINDIR"
+  if [ "$UI" != ncurses ]; then
+    # GUI as root on Wayland: go through XWayland and grant root access to it
+    xhost +SI:localuser:root >/dev/null 2>&1
+    PASS="$PASS DISPLAY=${DISPLAY:-:0} XAUTHORITY=${XAUTHORITY:-$HOME/.Xauthority}"
+    PASS="$PASS QT_QPA_PLATFORM=xcb GDK_BACKEND=x11"
+    [ "$UI" = gtk ] && PASS="$PASS GTK_THEME=${GTK_THEME:-Adwaita:dark}"
+  fi
+  exec sudo env $PASS "$P/lib/YaST2/bin/y2base" "$1" "$UI" "${@:2}"
+fi
+exec "$P/lib/YaST2/bin/y2base" "$1" "$UI" "${@:2}"

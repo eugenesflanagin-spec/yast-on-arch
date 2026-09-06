@@ -1,0 +1,18 @@
+#!/bin/bash
+# Run a libyui example on Arch, built from upstream libyui 4.7.7.
+#   yui-demo                -> list available examples
+#   yui-demo HelloWorld     -> run in ncurses (classic blue TUI)
+#   yui-demo -q ManyWidgets -> run with the Qt frontend
+PREFIX="$HOME/libyui-port/prefix"
+EX="$HOME/libyui-port/libyui/libyui/build/examples"
+export LD_LIBRARY_PATH="$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export YUI_PREFERRED_UI=ncurses
+if [ "$1" = "-q" ]; then export YUI_PREFERRED_UI=qt; shift; fi
+if [ -z "$1" ]; then
+    echo "libyui examples (prefix: $PREFIX)"
+    echo "usage: yui-demo [-q] <ExampleName>    (-q = Qt instead of ncurses)"
+    echo
+    find "$EX" -maxdepth 1 -type f -executable -printf '  %f\n' | sort
+    exit 0
+fi
+exec "$EX/$1" "${@:2}"

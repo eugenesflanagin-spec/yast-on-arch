@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=YaST Services Manager
+GenericName=systemd Services
+Comment=Manage systemd services with YaST (Qt)
+Exec=$HOME/libyui-port/yast -r -q services-manager
+Icon=preferences-system-services
+Terminal=false
+Categories=Settings;
+Keywords=yast;services;systemd;daemon;
+StartupNotify=true

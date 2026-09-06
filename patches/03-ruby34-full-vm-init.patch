@@ -1,0 +1,25 @@
+--- /tmp/claude-1000/-home-user/beb7157d-6224-49bf-a994-6a6f856a43d9/scratchpad/YRuby.cc.orig	2026-09-06 11:06:40.288035475 -0400
++++ src/binary/YRuby.cc	2026-09-06 11:06:40.299151389 -0400
+@@ -77,7 +77,21 @@
+     // Copying only needed parts of `ruby_options` here.
+     // See http://subforge.org/blogs/show/1
+     // Note that the solution is different to not touch internal ruby
+-    rb_define_module("Gem");
++    // ARCH PORT 2026-09-06: the original hack was
++    //     rb_define_module("Gem"); y2_require("rubygems");
++    // which pre-creates an EMPTY Gem module and hand-rolls part of ruby_options().
++    // On Ruby >= 3.4 that leaves the VM without its prelude, so RubyVM::InstructionSequence
++    // and even Time.now fail with "undefined method '#<Symbol:0x...>'" inside
++    // rubygems/specification.rb and forwardable/impl.rb.
++    // Running the real ruby_options() performs the full process init (prelude included)
++    // without executing anything, because the script is an empty -e.
++    {
++      static char  arg0[] = "yast";
++      static char  arg1[] = "-e";
++      static char  arg2[] = "";
++      static char *argv[] = { arg0, arg1, arg2 };
++      ruby_options(3, argv);
++    }
+     y2_require("rubygems");
+ 
+     // encoding initialization

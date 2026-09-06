@@ -1,0 +1,11 @@
+--- /tmp/claude-1000/-home-user/beb7157d-6224-49bf-a994-6a6f856a43d9/scratchpad/bt-Makefile.am.orig	2026-09-06 10:51:54.547848668 -0400
++++ build-tools/Makefile.am	2026-09-06 10:51:54.548374595 -0400
+@@ -2,7 +2,7 @@
+ # Makefile.am for devtools/devtools/admin
+ #
+ 
+-SUBDIRS = aclocal aminclude cmake data doc rpm doxygen scripts
++SUBDIRS = aclocal aminclude cmake data doc doxygen scripts
+ 
+ admindir = @YAST2DEVTOOLS@/admin
+ 

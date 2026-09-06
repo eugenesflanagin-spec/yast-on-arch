@@ -1,0 +1,5 @@
+# SCR retarget: point the desktop/group IniAgents at the local prefix instead of /usr.
+# Illustrates that SCR agents are DECLARATIVE - this is a path edit, not code.
+sed -i "s|/usr/share/applications/YaST2|$PREFIX/destdir/usr/share/applications/YaST2|g" \
+    $PREFIX/destdir/usr/share/YaST2/scrconf/yast2_desktop.scr \
+    $PREFIX/destdir/usr/share/YaST2/scrconf/yast2_groups.scr
