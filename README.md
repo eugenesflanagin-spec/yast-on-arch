@@ -105,3 +105,14 @@ This is probably the single most reusable thing here — it would affect any dis
 ## Licence
 
 GPL-2.0, matching upstream YaST and libyui. The patches here are derivative of GPL-2.0 code.
+
+## Control Center (2026-09-06)
+
+The real `yast2-control-center` (Qt) is ported: `~/libyui-port/yast control-center`
+(KDE menu: *YaST Control Center*). It runs as your user, so it follows your Qt/KDE
+theme, dark mode included, and escalates each module to root through `yast -r -q`
+only when you open it. Root modules get a copy of your `kdeglobals`, so they match.
+
+Arch stand-ins live in `arch/`: `Pkg` (pacman-backed queries, no transactions),
+`InstURL`/`Packages`/`SLPAPI` (installer-only, no-ops) and a small `y2storage` shim
+until libstorage-ng is ported. Nothing needs the network at runtime.

@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=YaST Control Center
-GenericName=System Configuration
-Comment=openSUSE YaST, ported to Arch Linux (GTK, dark)
-Exec=$HOME/libyui-port/yast -r -g menu
-Icon=preferences-system
+GenericName=System Settings (YaST)
+Comment=Classic YaST Control Center -- runs as your user, modules escalate to root when opened
+Exec=/home/user/libyui-port/yast control-center
+Icon=yast
 Terminal=false
 Categories=Settings;
-Keywords=yast;suse;system;configuration;control;center;
+Keywords=yast;suse;control;center;settings;
 StartupNotify=true

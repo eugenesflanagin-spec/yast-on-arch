@@ -43,9 +43,20 @@ if [ "$UI" = "gtk" ]; then
   # /usr/share/icons, which the glycin sandbox CAN read.
   export XDG_DATA_HOME="$P/gtkconf/data"
 fi
+# The classic YaST Control Center (yast2-control-center, Qt). It runs as the
+# plain user -- so it follows the desktop's own Qt/KDE theme (dark mode
+# included) -- and escalates each module to root through this launcher
+# ("-r -q") only when one is clicked.
+if [ "${1:-}" = "control-center" ] || [ "${1:-}" = "cc" ]; then
+  export YAST_LAUNCHER="$SELF/yast"
+  # the module and group icons (yast-*.svg) live in the prefix's hicolor theme
+  export XDG_DATA_DIRS="$P/destdir/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+  exec "$P/destdir/usr/lib/YaST2/bin/y2controlcenter" "${@:2}"
+fi
 if [ -z "$1" ]; then
     echo "YaST on Arch  (prefix: $P)"
-    echo "usage: yast [-q|-g] <module>   (-q = Qt GUI, -g = GTK GUI dark, default ncurses)"
+    echo "usage: yast [-r] [-q|-g] <module>   (-r = as root, -q = Qt GUI, -g = GTK GUI dark, default ncurses)"
+    echo "       yast control-center           (classic Qt Control Center, as user; modules escalate on click)"
     echo
     echo "available clients:"
     ls "$Y2DIR/clients"/*.rb 2>/dev/null | xargs -n1 basename | sed 's/\.rb$//' | sed 's/^/  /'
@@ -56,7 +67,11 @@ if [ "$ASROOT" = 1 ] && [ "$(id -u)" != 0 ]; then
   # sudo resets the environment, so pass the port's paths through explicitly.
   PASS="RUBYLIB=$RUBYLIB Y2DIR=$Y2DIR LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
   PASS="$PASS GEM_PATH=$GEM_PATH PATH=$PATH Y2BASE_PLUGINDIR=$Y2BASE_PLUGINDIR"
-  PASS="$PASS YAST_Y2BASE=$P/lib/YaST2/bin/y2base YAST_UI=$UI HOME=$HOME"
+  # HOME must NOT be the user's home: GTK's sandboxed SVG loader (glycin) builds
+  # its bwrap from $HOME/.cache and root cannot read a user's cache on this box,
+  # so the loader exits 1 and GTK aborts. Root has no other use for $HOME here
+  # (every path below is passed explicitly; root logs to /var/log/YaST2).
+  PASS="$PASS YAST_Y2BASE=$P/lib/YaST2/bin/y2base YAST_UI=$UI HOME=/root"
     [ "$UI" = gtk ] && PASS="$PASS XDG_CONFIG_HOME=$P/gtkconf XDG_DATA_DIRS=/usr/share GTK_USE_PORTAL=0 XDG_DATA_HOME=$P/gtkconf/data"
   if [ "$UI" != ncurses ]; then
     # GUI as root on Wayland: go through XWayland and grant root access to it
@@ -72,6 +87,17 @@ if [ "$ASROOT" = 1 ] && [ "$(id -u)" != 0 ]; then
     [ -n "$XAUTH" ] && PASS="$PASS XAUTHORITY=$XAUTH"
     PASS="$PASS DISPLAY=${DISPLAY:-:0}"
     PASS="$PASS QT_QPA_PLATFORM=xcb GDK_BACKEND=x11"
+    if [ "$UI" = qt ]; then
+      # Root has no KDE settings, so Qt modules would come up in the light
+      # Fusion look. Give root a private XDG_CONFIG_HOME holding a copy of the
+      # user's kdeglobals (colour scheme, fonts, icon theme) and select the
+      # Plasma platform theme -- the module then matches the desktop, dark
+      # mode included. Refreshed on every launch so theme changes follow.
+      mkdir -p "$P/qtconf"
+      cp -f "$HOME/.config/kdeglobals" "$P/qtconf/kdeglobals" 2>/dev/null
+      PASS="$PASS XDG_CONFIG_HOME=$P/qtconf QT_QPA_PLATFORMTHEME=kde"
+      PASS="$PASS XDG_DATA_DIRS=/usr/share:$P/destdir/usr/share"
+    fi
     [ "$UI" = gtk ] && PASS="$PASS GTK_THEME=${GTK_THEME:-Adwaita:dark}"
   fi
   if [ -n "${YAST_DEBUG:-}" ]; then

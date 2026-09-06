@@ -1,0 +1,87 @@
+diff --git i/src/CMakeLists.txt w/src/CMakeLists.txt
+index 612f594..d299b96 100644
+--- i/src/CMakeLists.txt
++++ w/src/CMakeLists.txt
+@@ -1,6 +1,6 @@
+ INCLUDE_DIRECTORIES(/usr/include/initng ${CMAKE_CURRENT_BINARY_DIR})
+ 
+-SET(THEMEDIR "/usr/share/YaST2/theme")
++SET(THEMEDIR "${CMAKE_INSTALL_PREFIX}/share/YaST2/theme")   # ARCH PORT: follow the prefix
+ 
+ ADD_DEFINITIONS(-DQT_NO_DEBUG_OUTPUT)
+ ADD_DEFINITIONS("-DLOCALEDIR=\"${CMAKE_INSTALL_PREFIX}/share/YaST2/locale\"")
+diff --git i/src/main_window.cpp w/src/main_window.cpp
+index eaf5dcf..0964ae8 100644
+--- i/src/main_window.cpp
++++ w/src/main_window.cpp
+@@ -290,8 +290,19 @@ void MainWindow::slotLaunchModule( const QModelIndex &index)
+     QString argument = d->modmodel->data( i2, Qt::UserRole ).toString();
+     QString name = d->modmodel->data( i3, Qt::UserRole ).toString();
+ 
++    // ARCH PORT: never launch an empty client (a stray activation at start-up
++    // on a group headline produced "yast -r -q" with no module).
++    if ( client.isEmpty() )
++        return;
++
+     // Do not send HUP signal when control center is closed, bsc#1154854.
+-    QString cmd = QString("/usr/bin/nohup /usr/sbin/yast2 ");
++    // ARCH PORT (yast-on-arch): there is no /usr/sbin/yast2. The launcher
++    // (bin/yast) is passed in $YAST_LAUNCHER; "-r -q" = escalate via sudo,
++    // Qt front-end. The control center itself runs as the plain user.
++    QString launcher = QString::fromLocal8Bit( qgetenv( "YAST_LAUNCHER" ) );
++    if ( launcher.isEmpty() )
++        launcher = "/usr/sbin/yast2";
++    QString cmd = QString("/usr/bin/nohup ") + launcher + " -r -q ";
+     cmd += client;
+ 
+     if ( d->noBorder )	
+@@ -307,7 +318,10 @@ void MainWindow::slotLaunchModule( const QModelIndex &index)
+     }
+ 
+     // Redirect nohup output to ensure that $HOME/nohup.out file is not created (bsc#1189651)
+-    cmd += " > /var/log/YaST2/nohup.out 2>&1 &";
++    // ARCH PORT: /var/log/YaST2 is root-only here; log next to the launcher log.
++    QString rt = QString::fromLocal8Bit( qgetenv( "XDG_RUNTIME_DIR" ) );
++    if ( rt.isEmpty() ) rt = "/tmp";
++    cmd += " >> " + rt + "/yast-on-arch.log 2>&1 &";
+ 
+     //FIXME: use something more intelligent (unique) to remember used modules, names suck
+     d->recentlyUsed.enqueue( name );  
+diff --git i/src/yccmoduleinfoprovider.cpp w/src/yccmoduleinfoprovider.cpp
+index ec10846..e545bd2 100644
+--- i/src/yccmoduleinfoprovider.cpp
++++ w/src/yccmoduleinfoprovider.cpp
+@@ -23,6 +23,7 @@
+ 
+ #include <QTemporaryFile>
+ #include <QProcess>
++#include <QFile>
+ #include <QDebug>
+ 
+ #include "yccmoduleinfoprovider.h"
+@@ -69,6 +70,9 @@ QString YCCModuleInfoProvider::provideInfo( const YQModulesModel *model, const Q
+             args << "get_status" << (autoinstclient) << "/tmp/ycc_status";
+             qDebug() << "Executing yast2 " << args;
+             
++            // ARCH PORT: no /sbin/yast2 and no AutoYaST status here.
++            if ( ! QFile::exists("/sbin/yast2") )
++                return QString();
+             yast2.start("/sbin/yast2", args );
+             
+             if ( ! yast2.waitForFinished() )
+diff --git i/src/yqmodulesmodel.cpp w/src/yqmodulesmodel.cpp
+index 5209fb4..d003e71 100644
+--- i/src/yqmodulesmodel.cpp
++++ w/src/yqmodulesmodel.cpp
+@@ -38,7 +38,10 @@ public:
+     Private()
+         : groupsModel(new YQModuleGroupsModel)
+     {
+-         userIsRoot = ( getuid() == 0 ); 
++         // ARCH PORT (yast-on-arch): the control center runs as the plain user
++         // and escalates every module through $YAST_LAUNCHER on click, so the
++         // RootOnly desktop entries must stay visible.
++         userIsRoot = ( getuid() == 0 ) || ! qgetenv( "YAST_LAUNCHER" ).isEmpty();
+     }
+ 
+     ~Private()

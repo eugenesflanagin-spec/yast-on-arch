@@ -1,0 +1,31 @@
+--- a/usr/share/YaST2/modules/Directory.rb
++++ b/usr/share/YaST2/modules/Directory.rb
+@@ -32,11 +32,16 @@
+     def main
+       textdomain "base"
+ 
+-      @yast2dir = "/usr/share/YaST2"
+-      @execcompdir = "/usr/lib/YaST2"
++      # ARCH PORT (yast-on-arch): YaST lives under a private prefix, not /usr.
++      # y2base already honours Y2DIR; mirror it here so desktop files, data and
++      # execcomp paths agree with it (Y2DIR=$P/destdir/usr/share/YaST2,
++      # YAST_Y2BASE=$P/lib/YaST2/bin/y2base, both exported by bin/yast).
++      @yast2dir = ENV["Y2DIR"].to_s.split(":").find { |d| File.directory?(d) } || "/usr/share/YaST2"
++      y2b = ENV["YAST_Y2BASE"].to_s
++      @execcompdir = y2b.end_with?("/YaST2/bin/y2base") ? File.dirname(File.dirname(y2b)) : "/usr/lib/YaST2"
+ 
+       # Directory for binaries and scripts
+-      @bindir = "/usr/lib/YaST2/bin"
++      @bindir = "#{@execcompdir}/bin"
+       @ybindir = @bindir
+ 
+       # Directory for log files
+@@ -82,7 +87,7 @@
+       @scrconfdir = Ops.add(@yast2dir, "/scrconf")
+ 
+       # Directory for desktop files
+-      @desktopdir = "/usr/share/applications/YaST2"
++      @desktopdir = "#{File.dirname(@yast2dir)}/applications/YaST2"
+ 
+       # Base directory for icons
+       #

@@ -29,3 +29,10 @@ export Y2DIR="$P/share/YaST2"
 export Y2BASE_PLUGINDIR="$P/lib/YaST2/plugin"
 export CC=gcc CXX=g++          # avoid the AOCC leak (CC=aocc-clang is exported system-wide)
 echo "YaST-on-Arch env active (prefix: $P)"
+
+# Perl language plugin (yast-perl-bindings): YaST::YCP lives under the prefix's
+# perl vendor dir, and ycp.pm (used by YaPI.pm) comes from yast-core's agents-perl
+# in share/perl5 -- without BOTH, `import "Users"` dies with "Can't locate ycp.pm",
+# which looks like a build failure but is only @INC.
+PERLVER="$(perl -V:version 2>/dev/null | sed "s/.*='//;s/'.*//" | cut -d. -f1,2)"
+export PERL5LIB="$P/lib/perl5/${PERLVER:-5.42}/vendor_perl:$P/share/perl5/vendor_perl${PERL5LIB:+:$PERL5LIB}"

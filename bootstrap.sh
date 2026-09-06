@@ -15,9 +15,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 PACMAN_DEPS=(cmake ninja boost qt5-base gtk3 ncurses gettext libxcrypt pkgconf git
              ruby ruby-rake bison flex libtool automake autoconf dejagnu
-             docbook-xsl libxslt perl-xml-writer fdupes ruby-nokogiri)
+             docbook-xsl libxslt perl-xml-writer fdupes ruby-nokogiri ruby-augeas augeas)
 # fast_gettext MUST be <3.0; Arch ships 3.1.0, so we pin it in the user gem dir.
-GEM_DEPS=("fast_gettext:<3.0" cheetah simpleidn abstract_method yast-rake prime)
+GEM_DEPS=("fast_gettext:<3.0" cheetah simpleidn abstract_method yast-rake prime cfa)
 
 say() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -128,13 +128,24 @@ clone https://github.com/yast/yast-ruby-bindings.git yast-ruby-bindings
   # the ruby language plugin must sit where the C++ component system looks
   find "$PREFIX/destdir" -name libpy2lang_ruby.so -exec cp -f {} "$PREFIX/lib/YaST2/plugin/" \; )
 
+# ------------------------------------------------------------ yast-perl-bindings
+# Users, Samba (client) and Mail are Perl modules (Users.pm, SambaAD.pm, ...).
+# Builds unchanged on Perl 5.42 / GCC 16; autotools via yast-devtools, prefix-
+# relative, so no DESTDIR needed. Runtime needs PERL5LIB (see yast-env.sh).
+say "Building yast-perl-bindings (Perl language plugin -- Users/Samba/Mail)"
+clone https://github.com/yast/yast-perl-bindings.git yast-perl-bindings
+( cd yast-perl-bindings
+  y2tool y2autoconf && y2tool y2automake && autoreconf --force --install >/dev/null 2>&1
+  ./configure --prefix="$PREFIX" --libdir="$PREFIX/lib" >/dev/null
+  make -j"$(nproc)" >/dev/null && make install >/dev/null )
+
 # ------------------------------------------------------------- yast modules
 say "Installing YaST modules (pure Ruby -- file copy, not a build)"
 MODULES="yast-yast2 yast-services-manager yast-country yast-users yast-firewall
 yast-bootloader yast-network yast-journal yast-samba-client yast-samba-server
 yast-nfs-client yast-nfs-server yast-ntp-client yast-security yast-sysconfig
 yast-alternatives yast-apparmor yast-iscsi-client yast-ldap yast-nis-client
-yast-proxy yast-tftp-server yast-vpn"
+yast-proxy yast-tftp-server yast-vpn yast-pam"
 for m in $MODULES; do
   clone "https://github.com/yast/$m.git" "$m" || continue
   ( cd "$m" && rake install DESTDIR="$PREFIX/destdir" >/dev/null 2>&1 ) \
@@ -149,6 +160,21 @@ if [[ -f $MENU ]] && ! grep -q YAST_Y2BASE "$MENU"; then
     && patch -s -p0 < "$HERE/patches/05-menu-launch-via-y2base.patch" ) 2>/dev/null \
   || sed -i "s|/sbin/yast2 %1 %2|$PREFIX/lib/YaST2/bin/y2base %1 qt %2|; \
              s|/sbin/yast %1 %2|$PREFIX/lib/YaST2/bin/y2base %1 ncurses %2|" "$MENU"
+fi
+
+# Arch stand-ins for namespaces that cannot exist here (see arch/*/ headers):
+#   Pkg      -- libzypp bindings; pacman-backed queries, transactions refused
+#   InstURL, Packages, SLPAPI -- installer/SLP-only, no-ops
+#   y2storage -- tiny shim for "is / on NFS / read-only" until libstorage-ng
+#                is ported (remove lib/y2storage* when it is)
+say "Installing Arch stand-in modules"
+Y2="$PREFIX/destdir/usr/share/YaST2"
+for f in "$HERE"/arch/modules/*.rb; do install -Dm644 "$f" "$Y2/modules/$(basename "$f")"; done
+( cd "$HERE/arch/lib" && find . -type f -name '*.rb' -exec install -Dm644 {} "$Y2/lib/{}" \; )
+
+# FIX: the Ruby layer hardcodes /usr for desktop files/data; follow Y2DIR instead.
+if ! grep -q 'ARCH PORT' "$Y2/modules/Directory.rb"; then
+  ( cd "$PREFIX/destdir" && patch -s -p1 < "$HERE/patches/06-directory-prefix-paths.patch" )
 fi
 
 # SCR agents are declarative: retarget the desktop-file paths at our prefix.
@@ -184,6 +210,21 @@ mkdir -p "$PREFIX/gtkconf/gtk-3.0" "$PREFIX/gtkconf/gtk-4.0"
 install -Dm644 "$HERE/gtkconf/gtk-3.0/settings.ini" "$PREFIX/gtkconf/gtk-3.0/settings.ini"
 install -Dm644 "$HERE/gtkconf/gtk-3.0/settings.ini" "$PREFIX/gtkconf/gtk-4.0/settings.ini"
 
+# ------------------------------------------------------- yast-control-center
+# The classic Qt Control Center (search bar, group sidebar, icon grid). Runs as
+# the plain user (follows the desktop's Qt/KDE theme, dark mode included) and
+# escalates each module through bin/yast -r -q on click. Patch 07: launch via
+# $YAST_LAUNCHER instead of /sbin/yast2, theme dir follows the prefix, RootOnly
+# modules stay visible, never launch an empty client.
+say "Building yast-control-center (Qt)"
+clone https://github.com/yast/yast-control-center.git yast-control-center
+( cd yast-control-center
+  grep -q YAST_LAUNCHER src/main_window.cpp || patch -s -p1 < "$HERE/patches/07-control-center-launcher-and-prefix.patch"
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX/destdir/usr" \
+    -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_MODULE_PATH="$PREFIX/share/cmake/Modules" -DVERSION=4.7.0 >/dev/null
+  cmake --build build -j"$(nproc)" >/dev/null && cmake --install build >/dev/null )
+mkdir -p "$PREFIX/qtconf"   # root Qt modules get a copy of the user's kdeglobals here
+
 install -Dm755 "$HERE/bin/yast"     "$ROOT/yast"
 install -Dm755 "$HERE/bin/yui-demo" "$ROOT/yui-demo"
 install -Dm644 "$HERE/yast-env.sh"  "$ROOT/yast-env.sh"
@@ -196,7 +237,8 @@ cat <<EOM
   $ROOT/yast                      # list modules
   $ROOT/yast services-manager     # ncurses (classic blue)
   $ROOT/yast -q services-manager  # Qt
-  $ROOT/yast -g menu              # GTK Control Center, dark mode
+  $ROOT/yast control-center       # classic Qt Control Center (as user; modules escalate on click)
+  $ROOT/yast -r -g menu           # GTK Control Center, dark mode, as root
 
   Note: services-manager takes 2-4 min to start -- it runs two systemctl
   calls per unit and a typical Arch box has ~1000 of them.
