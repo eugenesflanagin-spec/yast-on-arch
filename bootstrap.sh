@@ -16,7 +16,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACMAN_DEPS=(cmake ninja boost qt5-base gtk3 ncurses gettext libxcrypt pkgconf git
              ruby ruby-rake bison flex libtool automake autoconf dejagnu
              docbook-xsl libxslt perl-xml-writer fdupes ruby-nokogiri ruby-augeas augeas
-             libxml2 json-c swig)
+             libxml2 json-c swig perl-crypt-smbhash)
 # fast_gettext MUST be <3.0; Arch ships 3.1.0, so we pin it in the user gem dir.
 GEM_DEPS=("fast_gettext:<3.0" cheetah simpleidn abstract_method yast-rake prime cfa cfa_grub2 ruby-dbus)
 
@@ -261,9 +261,14 @@ mkdir -p "$PREFIX/qtconf"   # root Qt modules get a copy of the user's kdeglobal
 
 # Arch-adapted augeas lenses (Security module: Arch's login.defs has a bare MOTD_FILE)
 install -Dm644 "$HERE/arch/augeas/login_defs.aug" "$PREFIX/share/augeas/lenses/login_defs.aug"
-# yast2's helper scripts land under destdir; Directory.bindir points at the prefix's bin
+# yast2's helper scripts and the modules' SCR script agents (ag_exports, ag_passwd,
+# ...) land under destdir; y2base looks in the prefix's lib/YaST2/{bin,servers_non_y2}
 for f in "$PREFIX"/destdir/usr/lib/YaST2/bin/*; do
   [[ $(basename "$f") == y2controlcenter ]] || ln -sf "$f" "$PREFIX/lib/YaST2/bin/$(basename "$f")"
+done
+mkdir -p "$PREFIX/lib/YaST2/servers_non_y2"
+for f in "$PREFIX"/destdir/usr/lib/YaST2/servers_non_y2/*; do
+  ln -sf "$f" "$PREFIX/lib/YaST2/servers_non_y2/$(basename "$f")"
 done
 
 install -Dm755 "$HERE/bin/yast"     "$ROOT/yast"
