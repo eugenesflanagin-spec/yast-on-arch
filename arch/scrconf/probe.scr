@@ -1,0 +1,42 @@
+/**
+ * File:
+ *   probe.scr
+ * Summary:
+ *   SCR Agent for hardware probing on Arch Linux (hwinfo replacement)
+ * Access:
+ *   read / write
+ * Authors:
+ *   yast-on-arch port
+ * See:
+ *   ag_probe
+ *   libscr
+ * Example:
+ *   Read(.probe.architecture)
+ *   ("x86_64")
+ **
+ *   Read(.probe.netcard)
+ *   ([$["dev_name":"enp73s0",
+ *       "driver":"r8169",
+ *       "drivers":[$["active":true, "modules":[["r8169",""]]]],
+ *       "operstate":"up",
+ *       "resource":$["hwaddr":[$["addr":"9c:6b:00:51:f8:b9"]]],
+ *       "sysfs_bus_id":"0000:49:00.0"]])
+ **
+ *   Read(.probe.system)
+ *   ([$["formfactor":"desktop", "generation":"",
+ *       "system":"ASRock B650E Taichi Lite", "vendor":"ASRock"]])
+ *
+ * On SUSE this path is served by yast2-core's built-in hwinfo-backed agent.
+ * hwinfo is not packaged for Arch, so without this agent every SCR.Read(.probe.*)
+ * returns nil -- which breaks Arch.rb#architecture (nil makes every Arch.x86_64 /
+ * Arch.efi decision downstream wrong) and crashes IscsiClientLib#potential_offload_cards
+ * (it calls .map on the result).
+ *
+ * Only the paths listed by Dir(.probe) are answered: architecture, disk,
+ * is_vmware, is_xen, netcard, system.  Every other .probe path returns nil,
+ * exactly as it does today with no agent mounted -- see the header of ag_probe
+ * for why an empty list would be a worse answer than nil.
+ */
+.probe
+
+`ag_probe ()

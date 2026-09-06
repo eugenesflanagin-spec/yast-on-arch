@@ -1,0 +1,44 @@
+diff --git a/language/src/modules/Language.rb b/language/src/modules/Language.rb
+index 2a3ce1f..6efa05e 100644
+--- a/language/src/modules/Language.rb
++++ b/language/src/modules/Language.rb
+@@ -543,6 +543,11 @@ module Yast
+       nil
+     end
+ 
++    # Locales that mean "no localization at all" rather than a real language.
++    # A stock Arch Linux install leaves /etc/locale.conf at LANG=C.UTF-8 unless
++    # the user picks a locale, so these are the common case here, not an edge one.
++    POSIX_LOCALES = ["C", "POSIX"].freeze
++
+     # read the localed.conf language
+     def ReadLocaleConfLanguage
+       return nil if Mode.testsuite
+@@ -550,7 +555,26 @@ module Yast
+       return nil if @localed_conf.nil?
+       local_lang = @localed_conf["LANG"]
+       local_lang = local_lang.sub(/[.@].*$/, "") if local_lang
+-      log.info("language from locale.conf: %{local_lang}")
++
++      # Arch port: LANG=C.UTF-8 reduces to "C", which is not one of the 60
++      # language_*.ycp files shipped in Directory.datadir/languages.  Passing it
++      # on makes valid_language? false, so correct_language greets the user with
++      # "Language 'C' was not found within the list of supported languages" the
++      # moment the Language module is opened -- on a default Arch install, every
++      # time.  It also leaves the language ComboBox with no item matching the
++      # current value.  Returning nil lets the caller fall back to @language,
++      # which is already DEFAULT_FALLBACK_LANGUAGE, i.e. exactly the language
++      # correct_language would have chosen -- just without the error popup,
++      # because "the system is not localized" is not a misconfiguration to report.
++      if POSIX_LOCALES.include?(local_lang)
++        log.info("locale.conf LANG is #{local_lang.inspect} (no localization); " \
++                 "falling back to #{DEFAULT_FALLBACK_LANGUAGE}")
++        return nil
++      end
++
++      # NOTE: this was "%{local_lang}" in a plain double-quoted string, which is
++      # Ruby's format syntax, not interpolation -- it logged the literal text.
++      log.info("language from locale.conf: #{local_lang}")
+       local_lang
+     end
+ 

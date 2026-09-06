@@ -1,0 +1,412 @@
+#!/usr/bin/perl -w
+#
+# ag_probe -- a minimal .probe SCR agent for the Arch Linux port of YaST.
+#
+# WHY THIS EXISTS
+#   On SUSE, .probe is served by yast2-core's built-in hwinfo-backed agent.
+#   hwinfo is not packaged for Arch, so on this port SCR.Read(.probe.*) has no
+#   agent at all: every call returns nil.  That is not merely "less data" --
+#   several callers cannot cope with nil:
+#
+#     * Arch.rb#architecture  -- nil makes Arch.x86_64 / Arch.i386 / Arch.efi
+#                                and every downstream decision silently wrong.
+#     * IscsiClientLib.rb#potential_offload_cards -- does cards.map on the
+#                                result, so nil raises NoMethodError and the
+#                                iSCSI Initiator module dies on the offload tab.
+#
+#   This agent answers the handful of .probe paths that are (a) actually read
+#   by the modules we ship and (b) derivable from /sys, /proc and uname without
+#   guessing.  Everything else falls through to YaST::SCRAgent's default Read,
+#   which logs "Read not implemented ... for <path>" and returns nil -- exactly
+#   what callers get today, so nothing regresses.
+#
+# WHAT IS DELIBERATELY *NOT* IMPLEMENTED
+#   .probe.memory   Kernel.rb reads memories[0]["resource"]["phys_mem"][0]["range"]
+#                   solely to pick between kernel-pae and kernel-default on
+#                   i386.  nil and [] both yield memsize 0 there, so an
+#                   implementation would buy nothing while risking a wrong unit.
+#   .probe.pci
+#   .probe.isapnp   HwStatus#Update reads these purely for hwinfo's side effect
+#                   of registering devices; the return value is discarded.  With
+#                   no hwinfo there is no side effect to have, so returning a
+#                   fabricated [] would only hide that fact from the log.
+#   .probe.bios, .probe.usbctrl, .probe.cdrom, ...
+#                   No consumer in the tree needs them to be non-nil.
+#
+#   Returning nil for these is a deliberate choice, not an oversight: an empty
+#   list is a *claim* ("this machine has no PCI devices / no RAM") and would be
+#   a lie, whereas nil is what the caller already handles.
+#
+# ARCHITECTURE MAP -- KEEP IN LOCKSTEP WITH Arch.rb
+#   %UNAME_TO_YAST_ARCH below is a deliberate copy of UNAME_TO_YAST_ARCH in
+#   yast-yast2's Arch.rb (added by the Arch port's uname-fallback patch).  It is
+#   duplicated rather than shared because Arch.rb is Ruby and this is Perl, and
+#   because Arch.rb's own fallback must keep working when this agent is *not*
+#   mounted.  `ag_probe --selftest` prints the map so a bootstrap check can
+#   assert the two agree; please run it after touching either side.
+#
+# PROTOCOL NOTES (learned the hard way from ycp.pm)
+#   YaST::SCRAgent::Run calls ycp::Return($ret, 1) -- quote_everything is TRUE.
+#   A plain Perl scalar is therefore always serialized as a YCP *string*.  To
+#   return a boolean or an integer you must pass a SCALAR REF, which ycp::Return
+#   emits verbatim inside parentheses:
+#       \"true"   -> (true)     a YCP boolean
+#       \"1024"   -> (1024)     a YCP integer
+#       "x86_64"  -> "x86_64"   a YCP string
+#   Returning a plain 0 for .probe.is_xen would arrive as the string "0", and
+#   Convert.to_boolean("0") is nil -- not false.  Hence bool()/int() below.
+#
+# Author: written for the yast-on-arch port.
+# License: GPL-2.0-only, matching yast2-core.
+
+use strict;
+use warnings;
+
+package ag_probe;
+
+use YaST::SCRAgent;
+our @ISA = ("YaST::SCRAgent");
+
+use ycp;
+
+# Keep in lockstep with UNAME_TO_YAST_ARCH in yast-yast2's Arch.rb.
+our %UNAME_TO_YAST_ARCH = (
+    "x86_64"  => "x86_64",
+    "aarch64" => "aarch64",
+    "i686"    => "i386",
+    "i586"    => "i386",
+    "i486"    => "i386",
+    "riscv64" => "riscv64",
+    "ppc64le" => "ppc64",
+    "ppc64"   => "ppc64",
+    "s390x"   => "s390_64",
+);
+
+# ---------------------------------------------------------------- helpers ---
+
+# YCP boolean: must be a scalar ref, see PROTOCOL NOTES above.
+sub bool { return $_[0] ? \"true" : \"false"; }
+
+# YCP integer: must be a scalar ref, see PROTOCOL NOTES above.
+sub int_ { my $n = shift; $n = 0 unless defined $n; return \ "$n"; }
+
+# Read a one-line sysfs attribute, chomped and trimmed. undef if unreadable.
+sub slurp
+{
+    my ($file) = @_;
+    open (my $fh, "<", $file) or return undef;
+    my $val = <$fh>;
+    close ($fh);
+    return undef unless defined $val;
+    chomp $val;
+    $val =~ s/^\s+|\s+$//g;
+    return $val;
+}
+
+# basename of a symlink target, e.g. .../drivers/r8169 -> "r8169". undef if absent.
+sub link_basename
+{
+    my ($link) = @_;
+    return undef unless -l $link;
+    my $target = readlink ($link);
+    return undef unless defined $target;
+    $target =~ s{/+$}{};
+    $target =~ s{^.*/}{};
+    return $target eq "" ? undef : $target;
+}
+
+sub list_dir
+{
+    my ($dir) = @_;
+    opendir (my $dh, $dir) or return ();
+    my @entries = sort grep { $_ ne "." && $_ ne ".." } readdir ($dh);
+    closedir ($dh);
+    return @entries;
+}
+
+# ------------------------------------------------------------------ paths ---
+
+# .probe.architecture -> string, e.g. "x86_64"
+sub probe_architecture
+{
+    my $machine = `uname -m 2>/dev/null`;
+    return undef unless defined $machine;
+    chomp $machine;
+    $machine =~ s/^\s+|\s+$//g;
+    return undef if $machine eq "";
+    # Unknown machines pass through unmapped, matching Arch.rb's behaviour.
+    return $UNAME_TO_YAST_ARCH{$machine} || $machine;
+}
+
+# .probe.netcard -> list of maps.
+#
+# Shape is dictated by IscsiClientLib.rb#potential_offload_cards:
+#     card["drivers"].flat_map { |d| d["modules"].map(&:first) }
+#     c["dev_name"]
+#     c.dig("resource", "hwaddr", 0, "addr")
+# so "drivers" is a list of maps whose "modules" is a list of [name, params]
+# pairs, mirroring hwinfo's own layout.
+sub probe_netcard
+{
+    my @cards;
+    my $base = "/sys/class/net";
+
+    foreach my $dev (list_dir ($base))
+    {
+        my $devdir = "$base/$dev";
+
+        # Real NICs have a device/ link into the PCI/USB/platform tree.  This
+        # is what excludes lo, bridges, veth, tun, docker0 and friends -- the
+        # same set hwinfo leaves out of .probe.netcard.
+        next unless -e "$devdir/device";
+
+        my $card = { "dev_name" => $dev };
+
+        my $driver = link_basename ("$devdir/device/driver");
+        if (defined $driver)
+        {
+            # [name, params] pairs: map(&:first) on the Ruby side takes the name.
+            $card->{"drivers"} = [ { "active"  => bool (1),
+                                     "modules" => [ [ $driver, "" ] ] } ];
+            $card->{"driver"} = $driver;
+        }
+        else
+        {
+            $card->{"drivers"} = [];
+        }
+
+        my $mac = slurp ("$devdir/address");
+        $card->{"resource"} = { "hwaddr" => [ { "addr" => $mac } ] }
+            if defined $mac && $mac ne "";
+
+        my $bus_id = link_basename ("$devdir/device");
+        $card->{"sysfs_bus_id"} = $bus_id if defined $bus_id;
+
+        my $operstate = slurp ("$devdir/operstate");
+        $card->{"operstate"} = $operstate if defined $operstate;
+
+        push @cards, $card;
+    }
+
+    return \@cards;
+}
+
+# .probe.disk -> list of maps.
+#
+# NOTE: no module in the tree we ship reads .probe.disk today (yast2-storage-ng
+# goes through libstorage-ng instead), so the key set below follows hwinfo's
+# own disk layout rather than any observed consumer.  Treat the shape as
+# provisional: if a consumer turns up, check it against hwinfo before relying
+# on anything past dev_name/model/size.
+sub probe_disk
+{
+    my @disks;
+    my $base = "/sys/block";
+
+    foreach my $dev (list_dir ($base))
+    {
+        my $devdir = "$base/$dev";
+
+        # Physical block devices only: loop/ram/zram/dm/md have no device/ link.
+        next unless -e "$devdir/device";
+        # Optical drives are .probe.cdrom in hwinfo, not .probe.disk.
+        next if $dev =~ /^sr[0-9]+$/;
+
+        # Skip empty card readers and other 0-byte devices.
+        my $sectors = slurp ("$devdir/size");
+        next unless defined $sectors && $sectors =~ /^\d+$/ && $sectors > 0;
+
+        my $sector_size = slurp ("$devdir/queue/logical_block_size") || 512;
+
+        my $entry = {
+            "dev_name" => "/dev/$dev",
+            "sysfs_id" => "/block/$dev",
+            # hwinfo's resource.size is [x = count, y = unit size in bytes].
+            "resource" => { "size" => [ { "x"    => int_ ($sectors),
+                                          "y"    => int_ ($sector_size),
+                                          "unit" => "sectors" } ] },
+        };
+
+        my $model  = slurp ("$devdir/device/model");
+        my $vendor = slurp ("$devdir/device/vendor");
+        $entry->{"model"}  = $model  if defined $model  && $model  ne "";
+        $entry->{"vendor"} = $vendor if defined $vendor && $vendor ne "";
+
+        my $driver = link_basename ("$devdir/device/driver");
+        $entry->{"driver"} = $driver if defined $driver;
+
+        my $rotational = slurp ("$devdir/queue/rotational");
+        $entry->{"rotational"} = bool ($rotational) if defined $rotational;
+
+        push @disks, $entry;
+    }
+
+    return \@disks;
+}
+
+# DMI chassis types that mean "portable".  3 = Desktop, 7 = Tower, etc.
+my %LAPTOP_CHASSIS = map { $_ => 1 } (8, 9, 10, 11, 14, 30, 31, 32);
+
+# .probe.system -> list of maps.
+#
+# Arch.rb reads [0]["formfactor"] for is_laptop and ["system"]/["generation"]
+# for board_compatible (a ppc concept; harmless elsewhere).
+sub probe_system
+{
+    my $dmi = "/sys/class/dmi/id";
+
+    my $chassis = slurp ("$dmi/chassis_type");
+    my $formfactor = "desktop";
+    if (defined $chassis && $chassis =~ /^\d+$/)
+    {
+        $formfactor = "laptop" if $LAPTOP_CHASSIS{$chassis + 0};
+    }
+
+    my $vendor  = slurp ("$dmi/sys_vendor")   || "";
+    my $product = slurp ("$dmi/product_name") || "";
+    my $system  = join (" ", grep { $_ ne "" } ($vendor, $product));
+
+    return [ { "system"     => $system,
+               "generation" => "",
+               "formfactor" => $formfactor,
+               "vendor"     => $vendor,
+               "model"      => $product } ];
+}
+
+# .probe.is_xen -> boolean
+sub probe_is_xen
+{
+    my $type = slurp ("/sys/hypervisor/type");
+    return bool (1) if defined $type && $type eq "xen";
+    return bool (1) if -d "/proc/xen";
+    return bool (0);
+}
+
+# .probe.is_vmware -> boolean
+sub probe_is_vmware
+{
+    my $virt = `systemd-detect-virt --vm 2>/dev/null`;
+    if (defined $virt)
+    {
+        chomp $virt;
+        return bool (1) if $virt eq "vmware";
+    }
+    my $vendor = slurp ("/sys/class/dmi/id/sys_vendor");
+    return bool (1) if defined $vendor && $vendor =~ /VMware/i;
+    return bool (0);
+}
+
+# --------------------------------------------------------------- dispatch ---
+
+# One Read sub rather than the Read_<path> convention that
+# YaST::SCRAgent::TryCommandPath supports, because that convention hard-codes
+# whether SCR hands us the path with the mount point stripped.  Normalising
+# here makes the agent behave identically either way.
+#
+# NOTE: the handler subs are named probe_* on purpose, and must NEVER be named
+# after the path segment they serve.  Run() falls back to TryPathVariable, which
+# turns ".netcard" into the symbol "netcard" and looks it up in this package's
+# stash; if a sub of that name exists it matches the CODE slot and logs
+# <3> "Is a sub or a filehandle: netcard" on every single read.  The data still
+# comes back correct -- the fallthrough reaches Read() anyway -- so this is
+# invisible except as steady error noise in y2log.  (This also proves SCR strips
+# the mount point: the symbol was "netcard", not "probe_netcard".)
+our %READERS = (
+    ".architecture" => \&probe_architecture,
+    ".netcard"      => \&probe_netcard,
+    ".disk"         => \&probe_disk,
+    ".system"       => \&probe_system,
+    ".is_xen"       => \&probe_is_xen,
+    ".is_vmware"    => \&probe_is_vmware,
+);
+
+sub normalize_path
+{
+    my ($path) = @_;
+    $path = "" unless defined $path;
+    # Accept both ".netcard" (mount point stripped by SCR, the usual case) and
+    # ".probe.netcard" (full path), so a change in SCR's mounting does not
+    # silently turn every answer into nil.
+    $path =~ s/^\.probe(?=\.|$)//;
+    $path = "." if $path eq "";
+    return $path;
+}
+
+sub Read
+{
+    my ($class, $path, @rest) = @_;
+    my $key = normalize_path ($path);
+
+    my $handler = $READERS{$key};
+    if (!defined $handler)
+    {
+        # Same contract as YaST::SCRAgent's default Read: log and return nil.
+        y2milestone ("ag_probe: no data for $path (returning nil, as with no agent at all)");
+        return undef;
+    }
+
+    my $ret = $handler->();
+    y2debug ("ag_probe: Read $path");
+    return $ret;
+}
+
+sub Dir
+{
+    my ($class, $path, @rest) = @_;
+    my $key = normalize_path ($path);
+    return [] unless $key eq ".";
+    return [ map { my $p = $_; $p =~ s/^\.//; $p } sort keys %READERS ];
+}
+
+sub Write
+{
+    my ($class, $path, @rest) = @_;
+    my $key = normalize_path ($path);
+
+    # HwStatus#Save writes .probe.status.configured for every device it knows.
+    # On SUSE hwinfo persists that in its own database; we have no database, so
+    # accept and drop it.  Returning success keeps HwStatus#Save from filling
+    # y2log with errors for a bookkeeping call whose result it never checks.
+    if ($key =~ /^\.status\b/)
+    {
+        y2milestone ("ag_probe: ignoring Write $path (no hwinfo database on Arch)");
+        return 1;
+    }
+
+    y2error ("ag_probe: Write not supported for $path");
+    return 0;
+}
+
+# --------------------------------------------------------------- selftest ---
+
+# `ag_probe --selftest` prints every implemented path in YCP form without
+# speaking the stdin protocol, plus the architecture map so a bootstrap check
+# can assert it still matches Arch.rb's UNAME_TO_YAST_ARCH.
+sub selftest
+{
+    print "# ag_probe selftest\n";
+    print "# UNAME_TO_YAST_ARCH (must match Arch.rb):\n";
+    foreach my $k (sort keys %UNAME_TO_YAST_ARCH)
+    {
+        print "#   $k => $UNAME_TO_YAST_ARCH{$k}\n";
+    }
+    foreach my $key (sort keys %READERS)
+    {
+        print "Read(.probe$key) = ";
+        ycp::Return (ag_probe->Read ($key), 1);
+        print "\n";
+    }
+    print "Dir(.probe) = ";
+    ycp::Return (ag_probe->Dir ("."), 1);
+    print "\n";
+    return 0;
+}
+
+package main;
+
+if (defined $ARGV[0] && $ARGV[0] eq "--selftest")
+{
+    exit (ag_probe::selftest ());
+}
+
+ag_probe->Run;

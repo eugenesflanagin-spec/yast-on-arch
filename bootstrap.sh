@@ -153,11 +153,13 @@ yast-proxy yast-tftp-server yast-vpn yast-pam"
 #   11 yast-yast2 PackageSystem.rb: ask the pacman-backed Pkg instead of rpm
 #   14 yast-security: show live /proc/sys values when no sysctl file sets a key
 #   15 yast-yast2 ShadowConfig: edit /etc/login.defs itself (no login.defs.d on Arch)
+#   16 yast-country Language: LANG=C.UTF-8 (stock Arch) is "not localized", not an error
 declare -A REPO_PATCHES=(
   [yast-bootloader]="09-bootloader-arch-grub-paths 12-bootloader-write-guard"
   [yast-yast2]="10-yast2-arch-uname-fallback 11-packagesystem-no-rpm 15-yast2-shadow-config-no-login-defs-d"
   [yast-users]="13-users-x500dn-lazy-require"
   [yast-security]="14-security-live-sysctl-values"
+  [yast-country]="16-country-language-posix-locale"
 )
 for m in $MODULES; do
   clone "https://github.com/yast/$m.git" "$m" || continue
@@ -290,6 +292,10 @@ mkdir -p "$PREFIX/lib/YaST2/servers_non_y2"
 for f in "$PREFIX"/destdir/usr/lib/YaST2/servers_non_y2/*; do
   ln -sf "$f" "$PREFIX/lib/YaST2/servers_non_y2/$(basename "$f")"
 done
+# Arch .probe SCR agent (hwinfo replacement, Perl): .architecture .netcard .disk
+# .system .is_xen .is_vmware from /sys, /proc and uname. See docs/probe-agent.md.
+install -Dm755 "$HERE/arch/agents/ag_probe" "$PREFIX/lib/YaST2/servers_non_y2/ag_probe"
+install -Dm644 "$HERE/arch/scrconf/probe.scr" "$Y2/scrconf/probe.scr"
 
 install -Dm755 "$HERE/bin/yast"     "$ROOT/yast"
 install -Dm755 "$HERE/bin/yui-demo" "$ROOT/yui-demo"

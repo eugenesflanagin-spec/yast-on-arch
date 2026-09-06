@@ -1,0 +1,49 @@
+ag_probe verification transcript
+generated 2026-09-06T15:11:37-04:00 on Linux 7.3.0-rc1-273-tkg-bore-llvm x86_64 as uid 1000 (user)
+
+=== 1. perl -c ===
+arch-probe-agent/servers_non_y2/ag_probe syntax OK
+
+=== 2. ag_probe --selftest (direct, no SCR) ===
+# ag_probe selftest
+# UNAME_TO_YAST_ARCH (must match Arch.rb):
+#   aarch64 => aarch64
+#   i486 => i386
+#   i586 => i386
+#   i686 => i386
+#   ppc64 => ppc64
+#   ppc64le => ppc64
+#   riscv64 => riscv64
+#   s390x => s390_64
+#   x86_64 => x86_64
+Read(.probe.architecture) = "x86_64"
+Read(.probe.disk) = [$["sysfs_id":"/block/nvme0n1","rotational":(false),"resource":$["size":[$["x":(4000797360),"unit":"sectors","y":(512),] ,] ,] ,"dev_name":"/dev/nvme0n1","model":"AGAMMIXS70B-2T-CS",] ,$["resource":$["size":[$["y":(512),"unit":"sectors","x":(8001573552),] ,] ,] ,"rotational":(false),"model":"SPCC M.2 PCIe SSD","dev_name":"/dev/nvme1n1","sysfs_id":"/block/nvme1n1",] ,$["sysfs_id":"/block/nvme2n1","resource":$["size":[$["x":(1953525168),"unit":"sectors","y":(512),] ,] ,] ,"rotational":(false),"model":"Samsung SSD 980 PRO 1TB","dev_name":"/dev/nvme2n1",] ,$["model":"ST4000NM0033-9ZM","dev_name":"/dev/sda","resource":$["size":[$["y":(512),"unit":"sectors","x":(7814037168),] ,] ,] ,"vendor":"ATA","rotational":(true),"driver":"sd","sysfs_id":"/block/sda",] ,$["vendor":"USB","resource":$["size":[$["y":(512),"unit":"sectors","x":(120176640),] ,] ,] ,"rotational":(true),"model":"SanDisk 3.2Gen1","dev_name":"/dev/sdc","driver":"sd","sysfs_id":"/block/sdc",] ,$["sysfs_id":"/block/sdf","driver":"sd","dev_name":"/dev/sdf","model":"SD/MMC","rotational":(true),"resource":$["size":[$["y":(512),"x":(61071360),"unit":"sectors",] ,] ,] ,"vendor":"Generic-",] ,$["sysfs_id":"/block/sdj","driver":"sd","rotational":(true),"resource":$["size":[$["x":(61071360),"unit":"sectors","y":(512),] ,] ,] ,"vendor":"Generic","dev_name":"/dev/sdj","model":"MassStorageClass",] ,$["sysfs_id":"/block/sdl","driver":"sd","dev_name":"/dev/sdl","model":"USB Flash Disk","rotational":(true),"resource":$["size":[$["unit":"sectors","x":(30548096),"y":(512),] ,] ,] ,"vendor":"General",] ,] 
+Read(.probe.is_vmware) = (false)
+Read(.probe.is_xen) = (false)
+Read(.probe.netcard) = [$["dev_name":"enp73s0","resource":$["hwaddr":[$["addr":"9c:6b:00:51:f8:b9",] ,] ,] ,"operstate":"up","sysfs_bus_id":"0000:49:00.0","drivers":[$["active":(true),"modules":[["r8169","",] ,] ,] ,] ,"driver":"r8169",] ,$["sysfs_bus_id":"4-4.1.4.4:1.0","operstate":"down","drivers":[$["active":(true),"modules":[["r8152","",] ,] ,] ,] ,"driver":"r8152","dev_name":"enp76s0u4u1u4u4","resource":$["hwaddr":[$["addr":"00:e0:4c:68:00:1d",] ,] ,] ,] ,] 
+Read(.probe.system) = [$["generation":"","vendor":"ASRock","model":"B650E Taichi Lite","formfactor":"desktop","system":"ASRock B650E Taichi Lite",] ,] 
+Dir(.probe) = ["architecture","disk","is_vmware","is_xen","netcard","system",] 
+
+=== 3. Live SCR, unprivileged, scratch Y2DIR ===
+  .probe.architecture      -> String       "x86_64"
+  .probe.is_xen            -> FalseClass   false
+  .probe.is_vmware         -> FalseClass   false
+  .probe.netcard           -> Array of 2
+      enp73s0  mods=["r8169"]  mac="9c:6b:00:51:f8:b9"
+      enp76s0u4u1u4u4  mods=["r8152"]  mac="00:e0:4c:68:00:1d"
+  .probe.disk              -> Array of 8
+      /dev/nvme0n1  "AGAMMIXS70B-2T-CS"
+      /dev/nvme1n1  "SPCC M.2 PCIe SSD"
+      /dev/nvme2n1  "Samsung SSD 980 PRO 1TB"
+      /dev/sda  "ST4000NM0033-9ZM"
+      /dev/sdc  "SanDisk 3.2Gen1"
+      /dev/sdf  "SD/MMC"
+      /dev/sdj  "MassStorageClass"
+      /dev/sdl  "USB Flash Disk"
+  .probe.system            -> [{"formfactor" => "desktop", "generation" => "", "model" => "B650E Taichi Lite", "system" => "ASRock B650E Taichi Lite", "vendor" => "ASRock"}]
+  Dir(.probe)              -> ["architecture", "disk", "is_vmware", "is_xen", "netcard", "system"]
+  .probe.memory            -> nil   (unimplemented: nil, as with no agent)
+
+=== 4. y2log cleanliness: zero <3> errors from ag_probe across all six reads ===
+    (handler subs are named probe_*; naming them after the path segment
+     makes TryPathVariable log 'Is a sub or a filehandle' on every read)
