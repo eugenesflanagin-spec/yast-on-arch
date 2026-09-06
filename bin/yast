@@ -25,6 +25,10 @@ if [ "$UI" = "gtk" ]; then
   # via a private XDG_CONFIG_HOME so the user's own GTK settings are untouched.
   export XDG_CONFIG_HOME="$P/gtkconf"
   export XDG_DATA_DIRS="/usr/share:${XDG_DATA_DIRS:-/usr/local/share}"
+  # On Wayland/KDE, GTK takes its icon theme from xdg-desktop-portal, which
+  # OUTRANKS settings.ini -- so the private config above is ignored and the
+  # user-local theme comes back. Disable the portal for this process only.
+  export GTK_USE_PORTAL=0
 fi
 if [ -z "$1" ]; then
     echo "YaST on Arch  (prefix: $P)"
@@ -40,7 +44,7 @@ if [ "$ASROOT" = 1 ] && [ "$(id -u)" != 0 ]; then
   PASS="RUBYLIB=$RUBYLIB Y2DIR=$Y2DIR LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
   PASS="$PASS GEM_PATH=$GEM_PATH PATH=$PATH Y2BASE_PLUGINDIR=$Y2BASE_PLUGINDIR"
   PASS="$PASS YAST_Y2BASE=$P/lib/YaST2/bin/y2base YAST_UI=$UI HOME=$HOME"
-    [ "$UI" = gtk ] && PASS="$PASS XDG_CONFIG_HOME=$P/gtkconf XDG_DATA_DIRS=/usr/share"
+    [ "$UI" = gtk ] && PASS="$PASS XDG_CONFIG_HOME=$P/gtkconf XDG_DATA_DIRS=/usr/share GTK_USE_PORTAL=0"
   if [ "$UI" != ncurses ]; then
     # GUI as root on Wayland: go through XWayland and grant root access to it
     xhost +SI:localuser:root >/dev/null 2>&1

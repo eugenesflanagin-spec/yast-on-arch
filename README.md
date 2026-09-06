@@ -88,9 +88,14 @@ This is probably the single most reusable thing here — it would affect any dis
   `-r`, which passes the port's `RUBYLIB`/`Y2DIR` through `sudo` and, for GUI mode, routes via
   XWayland with `xhost +SI:localuser:root`.
 - **GTK aborts if your icon theme lives in `~/.local/share/icons`.** The sandboxed glycin
-  SVG loader binds only `/usr`, so it cannot read user-local themes and GTK dies on
-  `ensure_surface_for_gicon` with SIGABRT. The launcher points the GTK front-end at a private
-  `XDG_CONFIG_HOME` (`gtkconf/`) forcing system-wide Adwaita, leaving your own GTK settings alone.
+  SVG loader binds only `/usr`, `/nix/store` and fonts — never `/home` — so it cannot read
+  user-local themes. GTK then fails even its `image-missing` fallback and dies on
+  `ensure_surface_for_gicon` with SIGABRT. Arch has no gdk-pixbuf SVG loader at all, so glycin
+  cannot be bypassed. The launcher fixes this two ways, and **both are needed**: a private
+  `XDG_CONFIG_HOME` (`gtkconf/`) forcing system-wide Adwaita, *and* `GTK_USE_PORTAL=0` —
+  because on Wayland/KDE GTK reads its icon theme from `xdg-desktop-portal`, which **outranks
+  `settings.ini`** and would otherwise drag the user-local theme straight back. Your own GTK
+  settings are left untouched.
 - **`/var/log/YaST2` doesn't exist on Arch** — root logging needs it created once.
 - **services-manager takes 2–4 minutes to start.** It runs two `systemctl` calls per unit and a
   typical Arch box has ~1000. Not a bug.
