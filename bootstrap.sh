@@ -141,6 +141,16 @@ for m in $MODULES; do
     && echo "  ok   $m" || echo "  FAIL $m"
 done
 
+# FIX: menu.rb shells out to /sbin/yast2, which does not exist on Arch. Point it
+# at our y2base instead, reusing whichever UI the Control Center was started with.
+MENU="$PREFIX/destdir/usr/share/YaST2/clients/menu.rb"
+if [[ -f $MENU ]] && ! grep -q YAST_Y2BASE "$MENU"; then
+  ( cd "$PREFIX/destdir/usr/share/YaST2/clients" \
+    && patch -s -p0 < "$HERE/patches/05-menu-launch-via-y2base.patch" ) 2>/dev/null \
+  || sed -i "s|/sbin/yast2 %1 %2|$PREFIX/lib/YaST2/bin/y2base %1 qt %2|; \
+             s|/sbin/yast %1 %2|$PREFIX/lib/YaST2/bin/y2base %1 ncurses %2|" "$MENU"
+fi
+
 # SCR agents are declarative: retarget the desktop-file paths at our prefix.
 D="$PREFIX/destdir/usr/share/applications/YaST2"
 for f in yast2_desktop yast2_groups; do

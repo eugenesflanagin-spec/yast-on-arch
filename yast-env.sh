@@ -1,7 +1,7 @@
 #!/bin/bash
 # Source this to get the ported YaST stack on Arch.
 #   source ~/libyui-port/yast-env.sh
-P="$HOME/libyui-port/prefix"
+P="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/prefix"
 RBV="$(ruby -e 'puts RUBY_VERSION.split(".")[0,2].join(".") + ".0"')"
 ARCH="$(ruby -e 'puts RbConfig::CONFIG["arch"]')"
 D="$P/destdir/usr/lib/ruby/vendor_ruby/$RBV"

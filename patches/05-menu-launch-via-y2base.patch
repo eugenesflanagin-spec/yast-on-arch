@@ -1,0 +1,20 @@
+--- /tmp/claude-1000/-home-user/beb7157d-6224-49bf-a994-6a6f856a43d9/scratchpad/menu.rb.orig	2026-09-06 11:38:06.139929916 -0400
++++ /home/user/libyui-port/prefix/destdir/usr/share/YaST2/clients/menu.rb	2026-09-06 11:38:06.147581672 -0400
+@@ -305,10 +305,15 @@
+ 
+         # Use UI::RunInTerminal in text-mode only (#237332)
+         if textmode
+-          cmd = Builtins.sformat("/sbin/yast %1 %2 >&2", function.shellescape, argument)
++          y2base = ENV.fetch("YAST_Y2BASE", "/sbin/yast")
++          cmd = Builtins.sformat("%1 %2 ncurses %3 >&2", y2base, function.shellescape, argument)
+           ret = UI.RunInTerminal(cmd)
+         else
+-          cmd = Builtins.sformat("/sbin/yast2 %1 %2 >&2", function.shellescape, argument)
++          # ARCH PORT: /sbin/yast2 does not exist here. Call our y2base directly,
++          # reusing the UI the Control Center itself was launched with.
++          y2base = ENV.fetch("YAST_Y2BASE", "/sbin/yast2")
++          ui     = ENV.fetch("YAST_UI", "qt")
++          cmd = Builtins.sformat("%1 %2 %3 %4 >&2", y2base, function.shellescape, ui, argument)
+           ret = SCR.Execute(path(".target.bash"), cmd)
+         end
+         Builtins.y2milestone("Got %1 from %2", ret, cmd)

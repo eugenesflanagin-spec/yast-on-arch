@@ -3,8 +3,9 @@
 #   ~/libyui-port/yast                     -> list available modules
 #   ~/libyui-port/yast services-manager    -> run in ncurses (classic blue TUI)
 #   ~/libyui-port/yast -q services-manager -> run with the Qt frontend
-P="$HOME/libyui-port/prefix"
-source "$HOME/libyui-port/yast-env.sh" >/dev/null 2>&1
+SELF="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+P="$SELF/prefix"
+source "$SELF/yast-env.sh" >/dev/null 2>&1
 export Y2DIR="$P/destdir/usr/share/YaST2"
 export RUBYLIB="$P/destdir/usr/share/YaST2/lib:$RUBYLIB"
 export LD_LIBRARY_PATH="$P/lib:$P/lib/yui:$LD_LIBRARY_PATH"
@@ -33,6 +34,7 @@ if [ "$ASROOT" = 1 ] && [ "$(id -u)" != 0 ]; then
   # sudo resets the environment, so pass the port's paths through explicitly.
   PASS="RUBYLIB=$RUBYLIB Y2DIR=$Y2DIR LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
   PASS="$PASS GEM_PATH=$GEM_PATH PATH=$PATH Y2BASE_PLUGINDIR=$Y2BASE_PLUGINDIR"
+  PASS="$PASS YAST_Y2BASE=$P/lib/YaST2/bin/y2base YAST_UI=$UI HOME=$HOME"
   if [ "$UI" != ncurses ]; then
     # GUI as root on Wayland: go through XWayland and grant root access to it
     xhost +SI:localuser:root >/dev/null 2>&1
@@ -42,4 +44,5 @@ if [ "$ASROOT" = 1 ] && [ "$(id -u)" != 0 ]; then
   fi
   exec sudo env $PASS "$P/lib/YaST2/bin/y2base" "$1" "$UI" "${@:2}"
 fi
+export YAST_Y2BASE="$P/lib/YaST2/bin/y2base" YAST_UI="$UI"
 exec "$P/lib/YaST2/bin/y2base" "$1" "$UI" "${@:2}"
