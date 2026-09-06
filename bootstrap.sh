@@ -154,6 +154,7 @@ yast-proxy yast-tftp-server yast-vpn yast-pam"
 declare -A REPO_PATCHES=(
   [yast-bootloader]="09-bootloader-arch-grub-paths 12-bootloader-write-guard"
   [yast-yast2]="10-yast2-arch-uname-fallback 11-packagesystem-no-rpm"
+  [yast-users]="13-users-x500dn-lazy-require"
 )
 for m in $MODULES; do
   clone "https://github.com/yast/$m.git" "$m" || continue
@@ -191,11 +192,27 @@ clone https://github.com/openSUSE/libstorage-ng.git libstorage-ng
 clone https://github.com/yast/yast-storage-ng.git yast-storage-ng
 ( cd yast-storage-ng && rake install DESTDIR="$PREFIX/destdir" >/dev/null 2>&1 ) && echo "  ok   yast-storage-ng"
 
+Y2="$PREFIX/destdir/usr/share/YaST2"
+# yast-ldap is autotools (C++ LDAP agent + Ruby/Perl modules); rake install does
+# nothing for it. Copy the Ruby/Perl/SCR parts -- Samba Server imports Ldap.
+# (The C++ .ldap agent is not built; LDAP-backed features stay unavailable.)
+if [[ -d yast-ldap/src ]]; then
+  ( cd yast-ldap
+    install -Dm644 src/Ldap.rb "$Y2/modules/Ldap.rb"
+    install -Dm644 src/LdapPopup.rb "$Y2/modules/LdapPopup.rb"
+    install -Dm644 src/LdapServerAccess.pm "$Y2/modules/LdapServerAccess.pm"
+    install -Dm644 src/ldap_browser.rb "$Y2/clients/ldap_browser.rb"
+    install -Dm644 src/ldap_config.rb "$Y2/clients/ldap_config.rb"
+    install -Dm644 src/routines.rb "$Y2/include/ldap/routines.rb"
+    install -Dm644 src/ui.rb "$Y2/include/ldap/ui.rb"
+    install -Dm644 conf/ldap.scr "$Y2/scrconf/ldap.scr"
+    install -Dm644 conf/ldap_conf.scr "$Y2/scrconf/ldap_conf.scr" )
+fi
+
 # Arch stand-ins for namespaces that cannot exist here (see arch/modules/*.rb):
 #   Pkg      -- libzypp bindings; pacman-backed queries, transactions refused
 #   InstURL, Packages, SLPAPI -- installer/SLP-only, no-ops
 say "Installing Arch stand-in modules and vendored libs"
-Y2="$PREFIX/destdir/usr/share/YaST2"
 for f in "$HERE"/arch/modules/*.rb; do install -Dm644 "$f" "$Y2/modules/$(basename "$f")"; done
 # arch/lib: cfa/grub2 copies that shadow the cfa_grub2 gem (/boot/grub, not /boot/grub2)
 ( cd "$HERE/arch/lib" && find . -type f -name '*.rb' -exec install -Dm644 {} "$Y2/lib/{}" \; )

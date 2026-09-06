@@ -1,0 +1,29 @@
+diff --git a/src/modules/UsersPluginLDAPPasswordPolicy.pm b/src/modules/UsersPluginLDAPPasswordPolicy.pm
+index ba397cf..385a201 100644
+--- a/src/modules/UsersPluginLDAPPasswordPolicy.pm
++++ b/src/modules/UsersPluginLDAPPasswordPolicy.pm
+@@ -34,7 +34,10 @@ use strict;
+ use YaST::YCP qw(:LOGGING);
+ use YaPI;
+ use Data::Dumper;
+-use X500::DN;
++# Arch port: X500::DN is not packaged for Arch (AUR only) and this plugin is the
++# single consumer in the whole tree -- one call site, in Check() below. Loading it
++# lazily keeps the module importable without the dependency, so the unprivileged
++# Control Center sweep and every non-LDAP path work with it absent.
+ 
+ textdomain("users");
+ 
+@@ -233,7 +236,11 @@ sub Check {
+     my $pwdpolicysubentry	= $data->{'pwdPolicySubentry'};
+     if (defined $pwdpolicysubentry && $pwdpolicysubentry ne "") {
+ 
+-	# validate DN
++	# validate DN (Arch port: load X500::DN only when we actually need it)
++	eval { require X500::DN; 1 } or do {
++	    y2error ("X500::DN is not installed; cannot validate pwdPolicySubentry DN");
++	    return __("Cannot validate the password policy DN: the X500::DN Perl module is not installed.");
++	};
+ 	if (not defined X500::DN->ParseRFC2253 ($pwdpolicysubentry)) {
+ 	    # error popup, %s is object DN
+ 	    return sprintf (__("Invalid DN syntax of \"%s\"."), $pwdpolicysubentry);
