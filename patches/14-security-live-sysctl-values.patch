@@ -1,6 +1,26 @@
 --- a/src/modules/Security.rb
 +++ b/src/modules/Security.rb
-@@ -1030,7 +1030,27 @@
+@@ -119,7 +119,8 @@
+       @ctrl_alt_del_file = ::Security::CtrlAltDelConfig::SYSTEMD_FILE
+ 
+       # encryption methods supported by pam_unix (bnc#802006)
+-      @encryption_methods = ["des", "md5", "sha256", "sha512"]
++      # ARCH PORT: yescrypt is Arch's login.defs default (shadow >= 4.14)
++      @encryption_methods = ["des", "md5", "sha256", "sha512", "yescrypt"]
+ 
+       # All security settings
+       @Settings = {
+@@ -234,7 +235,8 @@
+         "des"    => 8,
+         "md5"    => 127,
+         "sha256" => 127,
+-        "sha512" => 127
++        "sha512" => 127,
++        "yescrypt" => 127
+       }
+ 
+       # Abort function
+@@ -1030,7 +1032,27 @@
  
      # @param key [String] Key to get the value for
      def read_sysctl_value(key)
@@ -29,3 +49,15 @@
      end
  
      # @param key    [String] Key to set the value for
+--- a/src/include/security/widgets.rb
++++ b/src/include/security/widgets.rb
+@@ -179,7 +179,8 @@
+               ["des", "DES"],
+               ["md5", "MD5"],
+               ["sha256", "SHA-256"],
+-              ["sha512", "SHA-512"]
++              ["sha512", "SHA-512"],
++              ["yescrypt", "yescrypt"]
+             ],
+             "Value"   => "des",
+             "Notify"  => "yes"
