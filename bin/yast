@@ -9,6 +9,13 @@ source "$SELF/yast-env.sh" >/dev/null 2>&1
 export Y2DIR="$P/destdir/usr/share/YaST2"
 export RUBYLIB="$P/destdir/usr/share/YaST2/lib:$RUBYLIB"
 export LD_LIBRARY_PATH="$P/lib:$P/lib/yui:$LD_LIBRARY_PATH"
+# When launched from the desktop menu there is no terminal, so any failure is
+# invisible. Tee everything to a log in that case.
+if [ ! -t 2 ]; then
+  YAST_LOG="${XDG_RUNTIME_DIR:-/tmp}/yast-on-arch.log"
+  exec 2> >(tee -a "$YAST_LOG" >&2)
+  echo "--- $(date "+%F %T") launch: $* ---" >&2
+fi
 UI=ncurses; ASROOT=0
 while :; do case "${1:-}" in
   -q) UI=qt;  shift ;;
@@ -48,10 +55,23 @@ if [ "$ASROOT" = 1 ] && [ "$(id -u)" != 0 ]; then
   if [ "$UI" != ncurses ]; then
     # GUI as root on Wayland: go through XWayland and grant root access to it
     xhost +SI:localuser:root >/dev/null 2>&1
-    PASS="$PASS DISPLAY=${DISPLAY:-:0} XAUTHORITY=${XAUTHORITY:-$HOME/.Xauthority}"
+    # ~/.Xauthority usually does NOT exist on a Wayland/KDE session -- the real
+    # cookie lives at /run/user/<uid>/xauth_XXXXXX. If XAUTHORITY is unset (e.g.
+    # when launched from the desktop menu rather than a shell), discover it, or
+    # root cannot reach the display and the window dies instantly.
+    XAUTH="${XAUTHORITY:-}"
+    if [ -z "$XAUTH" ] || [ ! -r "$XAUTH" ]; then
+      XAUTH="$(ls -1t /run/user/$(id -u)/xauth_* 2>/dev/null | head -1)"
+    fi
+    [ -n "$XAUTH" ] && PASS="$PASS XAUTHORITY=$XAUTH"
+    PASS="$PASS DISPLAY=${DISPLAY:-:0}"
     PASS="$PASS QT_QPA_PLATFORM=xcb GDK_BACKEND=x11"
     [ "$UI" = gtk ] && PASS="$PASS GTK_THEME=${GTK_THEME:-Adwaita:dark}"
   fi
+  if [ -n "${YAST_DEBUG:-}" ]; then
+    echo "would run as root:"; echo "  sudo env $PASS $P/lib/YaST2/bin/y2base $1 $UI ${*:2}"; exit 0
+  fi
+  echo "escalating to root via sudo (YaST requires uid 0)..." >&2
   exec sudo env $PASS "$P/lib/YaST2/bin/y2base" "$1" "$UI" "${@:2}"
 fi
 export YAST_Y2BASE="$P/lib/YaST2/bin/y2base" YAST_UI="$UI"

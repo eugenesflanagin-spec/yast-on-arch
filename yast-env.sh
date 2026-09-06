@@ -1,7 +1,16 @@
 #!/bin/bash
 # Source this to get the ported YaST stack on Arch.
 #   source ~/libyui-port/yast-env.sh
-P="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/prefix"
+# BASH_SOURCE is bash-only; when sourced from zsh/fish it is empty and the path
+# silently resolves to $PWD. Fall back to a known location.
+_src="${BASH_SOURCE[0]:-${(%):-%x}}"
+if [ -n "$_src" ] && [ -f "$_src" ]; then
+  P="$(cd "$(dirname "$(readlink -f "$_src")")" && pwd)/prefix"
+else
+  P="${YAST_ARCH_ROOT:-$HOME/libyui-port}/prefix"
+fi
+unset _src
+[ -d "$P" ] || { echo "yast-env.sh: prefix not found at $P" >&2; }
 RBV="$(ruby -e 'puts RUBY_VERSION.split(".")[0,2].join(".") + ".0"')"
 ARCH="$(ruby -e 'puts RbConfig::CONFIG["arch"]')"
 D="$P/destdir/usr/lib/ruby/vendor_ruby/$RBV"
