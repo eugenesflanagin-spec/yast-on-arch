@@ -11,17 +11,27 @@ index 612f594..d299b96 100644
  ADD_DEFINITIONS(-DQT_NO_DEBUG_OUTPUT)
  ADD_DEFINITIONS("-DLOCALEDIR=\"${CMAKE_INSTALL_PREFIX}/share/YaST2/locale\"")
 diff --git i/src/main_window.cpp w/src/main_window.cpp
-index eaf5dcf..0964ae8 100644
+index eaf5dcf..f8d824f 100644
 --- i/src/main_window.cpp
 +++ w/src/main_window.cpp
-@@ -290,8 +290,19 @@ void MainWindow::slotLaunchModule( const QModelIndex &index)
+@@ -290,8 +290,29 @@ void MainWindow::slotLaunchModule( const QModelIndex &index)
      QString argument = d->modmodel->data( i2, Qt::UserRole ).toString();
      QString name = d->modmodel->data( i3, Qt::UserRole ).toString();
  
-+    // ARCH PORT: never launch an empty client (a stray activation at start-up
-+    // on a group headline produced "yast -r -q" with no module).
++    // ARCH PORT: entries without an X-SuSE-YaST-Call (Octopi, the cache
++    // cleaner) are plain desktop applications: run their Exec= line as the
++    // user, detached. Never launch an empty YaST client (a stray activation at
++    // start-up on a group headline produced "yast -r -q" with no module).
 +    if ( client.isEmpty() )
++    {
++        QModelIndex src = d->modmodel->index( d->kcsfpm->mapToSource( index ).row(), 0 );
++        QString exec = d->modmodel->propertyValue( src, "Exec" ).toString();
++        if ( exec.isEmpty() )
++            return;
++        qDebug() << "Run desktop Exec: " << exec;
++        QProcess::startDetached( "/bin/sh", QStringList() << "-c" << exec );
 +        return;
++    }
 +
      // Do not send HUP signal when control center is closed, bsc#1154854.
 -    QString cmd = QString("/usr/bin/nohup /usr/sbin/yast2 ");
@@ -31,11 +41,11 @@ index eaf5dcf..0964ae8 100644
 +    QString launcher = QString::fromLocal8Bit( qgetenv( "YAST_LAUNCHER" ) );
 +    if ( launcher.isEmpty() )
 +        launcher = "/usr/sbin/yast2";
-+    QString cmd = QString("/usr/bin/nohup ") + launcher + " -r -q ";
++    QString cmd = QString("YAST_LOG_DIRECT=1 /usr/bin/nohup ") + launcher + " -r -q ";
      cmd += client;
  
      if ( d->noBorder )	
-@@ -307,7 +318,10 @@ void MainWindow::slotLaunchModule( const QModelIndex &index)
+@@ -307,7 +328,10 @@ void MainWindow::slotLaunchModule( const QModelIndex &index)
      }
  
      // Redirect nohup output to ensure that $HOME/nohup.out file is not created (bsc#1189651)

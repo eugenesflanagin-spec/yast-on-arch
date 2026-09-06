@@ -18,7 +18,7 @@ PACMAN_DEPS=(cmake ninja boost qt5-base gtk3 ncurses gettext libxcrypt pkgconf g
              docbook-xsl libxslt perl-xml-writer fdupes ruby-nokogiri ruby-augeas augeas
              libxml2 json-c swig)
 # fast_gettext MUST be <3.0; Arch ships 3.1.0, so we pin it in the user gem dir.
-GEM_DEPS=("fast_gettext:<3.0" cheetah simpleidn abstract_method yast-rake prime cfa cfa_grub2)
+GEM_DEPS=("fast_gettext:<3.0" cheetah simpleidn abstract_method yast-rake prime cfa cfa_grub2 ruby-dbus)
 
 say() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -147,8 +147,19 @@ yast-bootloader yast-network yast-journal yast-samba-client yast-samba-server
 yast-nfs-client yast-nfs-server yast-ntp-client yast-security yast-sysconfig
 yast-alternatives yast-apparmor yast-iscsi-client yast-ldap yast-nis-client
 yast-proxy yast-tftp-server yast-vpn yast-pam"
+# Arch adaptations of upstream Ruby, applied in the clone before rake install:
+#   09 yast-bootloader: grub-* binaries and /boot/grub instead of grub2-* and /boot/grub2
+#   10 yast-yast2 Arch.rb: uname -m fallback (no libhd .probe agent here)
+#   11 yast-yast2 PackageSystem.rb: ask the pacman-backed Pkg instead of rpm
+declare -A REPO_PATCHES=(
+  [yast-bootloader]="09-bootloader-arch-grub-paths"
+  [yast-yast2]="10-yast2-arch-uname-fallback 11-packagesystem-no-rpm"
+)
 for m in $MODULES; do
   clone "https://github.com/yast/$m.git" "$m" || continue
+  for pf in ${REPO_PATCHES[$m]:-}; do
+    ( cd "$m" && patch -s -N -p1 -r - < "$HERE/patches/$pf.patch" ) || true
+  done
   ( cd "$m" && rake install DESTDIR="$PREFIX/destdir" >/dev/null 2>&1 ) \
     && echo "  ok   $m" || echo "  FAIL $m"
 done
@@ -183,9 +194,12 @@ clone https://github.com/yast/yast-storage-ng.git yast-storage-ng
 # Arch stand-ins for namespaces that cannot exist here (see arch/modules/*.rb):
 #   Pkg      -- libzypp bindings; pacman-backed queries, transactions refused
 #   InstURL, Packages, SLPAPI -- installer/SLP-only, no-ops
-say "Installing Arch stand-in modules"
+say "Installing Arch stand-in modules and vendored libs"
 Y2="$PREFIX/destdir/usr/share/YaST2"
 for f in "$HERE"/arch/modules/*.rb; do install -Dm644 "$f" "$Y2/modules/$(basename "$f")"; done
+# arch/lib: cfa/grub2 copies that shadow the cfa_grub2 gem (/boot/grub, not /boot/grub2)
+( cd "$HERE/arch/lib" && find . -type f -name '*.rb' -exec install -Dm644 {} "$Y2/lib/{}" \; )
+
 
 # FIX: the Ruby layer hardcodes /usr for desktop files/data; follow Y2DIR instead.
 if ! grep -q 'ARCH PORT' "$Y2/modules/Directory.rb"; then
@@ -239,6 +253,13 @@ clone https://github.com/yast/yast-control-center.git yast-control-center
     -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_MODULE_PATH="$PREFIX/share/cmake/Modules" -DVERSION=4.7.0 >/dev/null
   cmake --build build -j"$(nproc)" >/dev/null && cmake --install build >/dev/null )
 mkdir -p "$PREFIX/qtconf"   # root Qt modules get a copy of the user's kdeglobals here
+
+# Arch-adapted augeas lenses (Security module: Arch's login.defs has a bare MOTD_FILE)
+install -Dm644 "$HERE/arch/augeas/login_defs.aug" "$PREFIX/share/augeas/lenses/login_defs.aug"
+# yast2's helper scripts land under destdir; Directory.bindir points at the prefix's bin
+for f in "$PREFIX"/destdir/usr/lib/YaST2/bin/*; do
+  [[ $(basename "$f") == y2controlcenter ]] || ln -sf "$f" "$PREFIX/lib/YaST2/bin/$(basename "$f")"
+done
 
 install -Dm755 "$HERE/bin/yast"     "$ROOT/yast"
 install -Dm755 "$HERE/bin/yui-demo" "$ROOT/yui-demo"

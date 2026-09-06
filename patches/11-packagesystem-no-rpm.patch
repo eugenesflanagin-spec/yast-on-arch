@@ -1,0 +1,22 @@
+--- a/library/packages/src/modules/PackageSystem.rb
++++ b/library/packages/src/modules/PackageSystem.rb
+@@ -337,6 +337,9 @@
+     # @param package [String] name of the package to check if provided
+     # @return [Boolean] whether the package is provided in the system or not
+     def Installed(package)
++      # ARCH PORT: pacman is the package manager (rpm may exist as a tool); Pkg is pacman-backed
++      return Pkg.PkgInstalled(package) if File.executable?("/usr/bin/pacman")
++
+       # This is a most commonly called function and so it's
+       # important that it's fast, especially in the common
+       # case, where all dependencies are satisfied.
+@@ -357,6 +360,9 @@
+     # Is a package installed? Checks only the package name in contrast to Installed() function.
+     # @return true if yes
+     def PackageInstalled(package)
++      # ARCH PORT: pacman box, ask the pacman-backed Pkg
++      return Pkg.PkgInstalled(package) if File.executable?("/usr/bin/pacman")
++
+       InitRPMQueryBinary()
+ 
+       # This is commonly called function and so it's

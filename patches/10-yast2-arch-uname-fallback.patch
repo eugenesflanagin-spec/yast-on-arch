@@ -1,0 +1,56 @@
+diff --git a/library/general/src/modules/Arch.rb b/library/general/src/modules/Arch.rb
+index fae9e43..a4a4c0f 100644
+--- a/library/general/src/modules/Arch.rb
++++ b/library/general/src/modules/Arch.rb
+@@ -27,6 +27,7 @@
+ #
+ # $Id$
+ require "yast"
++require "yast2/execute"
+ 
+ module Yast
+   # Representing architecture information yast have.
+@@ -74,15 +75,43 @@ module Yast
+     # (one of i386, sparc, sparc64, ppc, ppc64, alpha, s390_32, s390_64, ia64, x86_64, arm, aarch64, risv64)
+     #
+     # @return [String] architecture
++    # Arch port: .probe.architecture comes from yast2-hardware-detection (libhd),
++    # which does not exist on Arch Linux -- SCR logs "Couldn't find an agent" and
++    # returns nil, which makes every Arch.x86_64 / Arch.efi decision downstream
++    # silently wrong. Fall back to uname(1), mapping to YaST's own names.
++    UNAME_TO_YAST_ARCH = {
++      "x86_64"  => "x86_64",
++      "aarch64" => "aarch64",
++      "i686"    => "i386",
++      "i586"    => "i386",
++      "i486"    => "i386",
++      "riscv64" => "riscv64",
++      "ppc64le" => "ppc64",
++      "ppc64"   => "ppc64",
++      "s390x"   => "s390_64"
++    }.freeze
++
+     def architecture
+       if @_architecture.nil?
+         @_architecture = Convert.to_string(
+           SCR.Read(path(".probe.architecture"))
+         )
+       end
++      @_architecture = architecture_from_uname if @_architecture.nil? || @_architecture.empty?
+       @_architecture
+     end
+ 
++    # @return [String, nil] YaST architecture name derived from `uname -m`
++    def architecture_from_uname
++      machine = Yast::Execute.locally!("uname", "-m", stdout: :capture).to_s.strip
++      arch = UNAME_TO_YAST_ARCH[machine] || machine
++      Yast.y2milestone("Arch: .probe.architecture unavailable, using uname -m => %1 (%2)", machine, arch)
++      arch
++    rescue StandardError => e
++      Yast.y2warning("Arch: uname fallback failed: %1", e.message)
++      nil
++    end
++
+     # true for all x86 compatible architectures
+     def i386
+       architecture == "i386"

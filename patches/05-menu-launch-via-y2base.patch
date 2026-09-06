@@ -1,11 +1,49 @@
---- /tmp/claude-1000/-home-user/beb7157d-6224-49bf-a994-6a6f856a43d9/scratchpad/menu.rb.orig	2026-09-06 11:38:06.139929916 -0400
-+++ /home/user/libyui-port/prefix/destdir/usr/share/YaST2/clients/menu.rb	2026-09-06 11:38:06.147581672 -0400
-@@ -305,10 +305,15 @@
+--- a/usr/share/YaST2/clients/menu.rb
++++ b/usr/share/YaST2/clients/menu.rb
+@@ -63,7 +63,8 @@
+         "X-SuSE-YaST-SortKey",
+         "X-SuSE-YaST-RootOnly",
+         "X-SuSE-YaST-WSL",
+-        "Hidden"
++        "Hidden",
++        "Exec" # ARCH PORT: desktop-only entries (Octopi) have no YaST call
+       ]
+ 
+       # always load the desktop files from the system root
+@@ -295,6 +296,27 @@
+       display_info = UI.GetDisplayInfo
+       textmode = Ops.get_boolean(display_info, "TextMode", false)
+ 
++      # ARCH PORT: an entry without X-SuSE-YaST-Call is a plain desktop
++      # application (Software -> Octopi). This Control Center runs as root, so
++      # hand it back to the desktop user's session instead of running a GUI as
++      # root: the launcher exports the invoking user and their runtime dir.
++      if function == ""
++        exec_line = Ops.get_string(@Modules, [modul, "Exec"], "")
++        user = ENV["YAST_DESKTOP_USER"].to_s
++        if !exec_line.empty? && !user.empty?
++          rt = ENV["YAST_DESKTOP_RUNTIME_DIR"].to_s
++          rt = "/run/user/#{Etc.getpwnam(user).uid}" if rt.empty?
++          cmd = "runuser -u #{user.shellescape} -- env -u XDG_CONFIG_HOME -u XDG_DATA_HOME " \
++                "-u XDG_DATA_DIRS -u GTK_USE_PORTAL -u GTK_THEME -u QT_QPA_PLATFORMTHEME " \
++                "HOME=#{Etc.getpwnam(user).dir.shellescape} XDG_RUNTIME_DIR=#{rt.shellescape} " \
++                "DBUS_SESSION_BUS_ADDRESS=unix:path=#{rt.shellescape}/bus " \
++                "sh -c #{exec_line.shellescape} >/dev/null 2>&1 &"
++          Builtins.y2milestone("Desktop entry, running as %1: %2", user, cmd)
++          SCR.Execute(path(".target.bash_background"), cmd)
++        end
++        return false
++      end
++
+       if function != ""
+         cmd = ""
+         ret = nil
+@@ -305,10 +327,15 @@
  
          # Use UI::RunInTerminal in text-mode only (#237332)
          if textmode
 -          cmd = Builtins.sformat("/sbin/yast %1 %2 >&2", function.shellescape, argument)
-+          y2base = ENV.fetch("YAST_Y2BASE", "/sbin/yast")
++          y2base = ENV.fetch("YAST_Y2BASE", "/sbin/yast")   # ARCH PORT: no /sbin/yast here
 +          cmd = Builtins.sformat("%1 %2 ncurses %3 >&2", y2base, function.shellescape, argument)
            ret = UI.RunInTerminal(cmd)
          else

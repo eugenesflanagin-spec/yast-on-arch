@@ -40,3 +40,6 @@ export PERL5LIB="$P/lib/perl5/${PERLVER:-5.42}/vendor_perl:$P/share/perl5/vendor
 # libstorage-ng hardcodes /usr/share/libstorage for its udev filters; upstream's
 # own escape hatch is LIBSTORAGE_CONFDIR (checked first in UdevFilters.cc).
 export LIBSTORAGE_CONFDIR="$P/share/libstorage"
+
+# Arch-adapted augeas lenses (see arch/augeas/): searched before /usr/share/augeas/lenses.
+export AUGEAS_LENS_LIB="$P/share/augeas/lenses${AUGEAS_LENS_LIB:+:$AUGEAS_LENS_LIB}"

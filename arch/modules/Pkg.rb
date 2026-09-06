@@ -26,14 +26,32 @@ module Yast
       @locale = "en_US" if @locale.empty? || @locale == "C"
       @additional_locales = []
       @solver_flags = {}
+      @to_install = []
       log.info "Pkg: Arch Linux stub loaded (pacman-backed queries, no-op transactions)"
     end
 
+    # openSUSE package names the modules ask for -> Arch package(s). A nil
+    # value means "no Arch equivalent" (reported as not available). Names
+    # not listed are tried as-is (pacman -T honours provides=).
+    NAME_MAP = {
+      "nfs-kernel-server" => "nfs-utils", "nfs-client" => "nfs-utils",
+      "samba-client" => "smbclient", "samba-winbind" => "samba", "samba-pdb" => "samba",
+      "iscsiuio" => "open-iscsi", "NetworkManager" => "networkmanager",
+      "strongswan-ipsec" => "strongswan", "setxkbmap" => "xorg-setxkbmap",
+      "tftp" => "tftp-hpa", "apparmor-parser" => "apparmor", "apparmor-utils" => "apparmor",
+      "apparmor-profiles" => "apparmor", "dhcp-server" => "dhcp", "krb5-client" => "krb5",
+      "krb5-plugin-preauth-pkinit-nss" => "krb5", "qemu" => "qemu-base", "kvm" => "qemu-base",
+      "openldap2-client" => "openldap", "openldap2" => "openldap", "ypbind" => "ypbind-mt",
+      "yp-tools" => "yp-tools", "nscd" => nil, "wicked" => nil, "ndiswrapper" => nil, "xen" => nil,
+    }.freeze
+    # packages that are "the system itself" here -- always considered installed
+    VIRTUAL = /\A(yast2|kernel|patterns|libzypp|zypper|rpm)(-|\z)/
+
     # ------------------------------------------------------------ pacman-backed
-    def PkgInstalled(name)   = pacman_installed?(name)
-    def IsProvided(name)     = pacman_installed?(name) || pacman_provided?(name)
-    def IsAvailable(name)    = pacman_available?(name)
-    def PkgAvailable(name)   = pacman_available?(name)
+    def PkgInstalled(name)   = virtual?(name) || pacman_installed?(name)
+    def IsProvided(name)     = PkgInstalled(name)
+    def IsAvailable(name)    = virtual?(name) || pacman_available?(name)
+    def PkgAvailable(name)   = IsAvailable(name)
     def IsSelected(_name)    = false
     def PkgQueryProvides(cap)
       out = `pacman -Qq 2>/dev/null`.split
@@ -73,8 +91,11 @@ module Yast
     def SourceLoad                            = true
     def SourceSaveAll                         = true
     def SourceReleaseAll                      = true
-    def SourceGetCurrent(_e = true)           = []
-    def SourceGeneralData(_id)                = {}
+    def SourceGetCurrent(_e = true)           = [0]
+    def SourceGeneralData(_id)
+      { "alias" => "pacman", "name" => "pacman sync database", "enabled" => true,
+        "autorefresh" => false, "url" => "pacman:///", "product_dir" => "/", "type" => "pacman" }
+    end
     def SourceSetEnabled(_id, _e)             = true
     def SourceDelete(_id)                     = true
     def SourceRefreshNow(_id)                 = true
@@ -97,8 +118,6 @@ module Yast
     def PkgMediaCount                         = []
     def Resolvables(*_a)                      = []
     def ResolvableProperties(*_a)             = []
-    def AnyResolvable(*_a)                    = false
-    def IsAnyResolvable(*_a)                  = false
     def PkgGetLicensesToConfirm(*_a)          = []
     def PkgMarkLicenseConfirmed(*_a)          = true
     def PrdNeedToAcceptLicense(*_a)           = false
@@ -109,16 +128,49 @@ module Yast
     def PkgNeutral(_n)                        = true
     def ResolvableNeutral(*_a)                = true
 
-    # ---------------------------------------------- transactions: refused, logged
-    def PkgInstall(n)        = refuse("PkgInstall #{n}")
+    # ------------------------------ transactions: installs go through pacman
+    # A module asks "package X is missing, install it?"; when the user says yes
+    # YaST calls PkgInstall(x) then PkgCommit. We queue the Arch name(s) and run
+    # `pacman -S --needed` on commit (root only; the module already is).
+    # Removals are refused: nothing in these modules needs them and a YaST
+    # mistake must never uninstall from an Arch box.
+    def PkgInstall(n)
+      arch = arch_names(n)
+      if arch.empty?
+        @last_error = "no Arch package corresponds to '#{n}'"
+        log.warn "Pkg (Arch stub): #{@last_error}"
+        return false
+      end
+      @to_install |= arch
+      log.info "Pkg (Arch stub): queued #{n} -> #{arch.join(' ')}"
+      true
+    end
     def PkgDelete(n)         = refuse("PkgDelete #{n}")
     def PkgTaboo(n)          = refuse("PkgTaboo #{n}")
-    def ResolvableInstall(*a)= refuse("ResolvableInstall #{a.inspect}")
+    def ResolvableInstall(name, kind = :package, *_a) = kind == :package ? PkgInstall(name) : refuse("ResolvableInstall #{kind} #{name}")
     def ResolvableRemove(*a) = refuse("ResolvableRemove #{a.inspect}")
     def ProvidePackage(*a)   = refuse("ProvidePackage #{a.inspect}")
+    def IsAnyResolvable(_kind = :package, status = :to_install, *_a) = status == :to_install && !@to_install.empty?
+    def AnyResolvable(*a)    = IsAnyResolvable(*a)
     # libzypp returns [successful, failed, remaining, srcremaining]
-    def PkgCommit(_media = 0) = [[], [], [], []]
-    def Commit(_cfg = {})     = [[], [], [], []]
+    def PkgCommit(_media = 0)
+      pkgs = @to_install.dup
+      @to_install = []
+      return [[], [], [], []] if pkgs.empty?
+      unless Process.uid.zero?
+        @last_error = "pacman needs root; run this module with `yast -r`"
+        log.error "Pkg (Arch stub): #{@last_error}"
+        return [[], pkgs, [], []]
+      end
+      cmd = ["pacman", "-S", "--needed", "--noconfirm", "--noprogressbar", *pkgs]
+      log.info "Pkg (Arch stub): running #{cmd.join(' ')}"
+      out = IO.popen(cmd, err: [:child, :out], &:read)
+      ok = $?.success?
+      log.send(ok ? :info : :error, "Pkg (Arch stub): pacman exit #{$?.exitstatus}: #{out.to_s[-800..] || out}")
+      @last_error = ok ? "" : out.to_s.lines.last(5).join
+      ok ? [pkgs, [], [], []] : [[], pkgs, [], []]
+    end
+    def Commit(_cfg = {})     = PkgCommit(0)
 
     # Every Pkg.Callback* registration is a no-op here.
     def method_missing(name, *args, &blk)
@@ -131,9 +183,21 @@ module Yast
     private
 
     def shell(s) = "'" + s.to_s.gsub("'", "'\\\\''") + "'"
-    def pacman_installed?(name) = system("pacman", "-Qq", name.to_s, out: File::NULL, err: File::NULL)
-    def pacman_provided?(name)  = system("pacman", "-Qq", "--satisfies", name.to_s, out: File::NULL, err: File::NULL) rescue false
-    def pacman_available?(name) = system("pacman", "-Si", name.to_s, out: File::NULL, err: File::NULL)
+    def virtual?(name) = !!(name.to_s =~ VIRTUAL)
+    def arch_names(name)
+      n = name.to_s
+      return [] if virtual?(n)
+      NAME_MAP.key?(n) ? Array(NAME_MAP[n]).compact : [n]
+    end
+    # pacman -T: exit 0 when the dependency is satisfied (installed or provided)
+    def pacman_installed?(name)
+      arch = arch_names(name)
+      !arch.empty? && arch.all? { |a| system("pacman", "-T", a, out: File::NULL, err: File::NULL) }
+    end
+    def pacman_available?(name)
+      arch = arch_names(name)
+      !arch.empty? && arch.all? { |a| system("pacman", "-Si", a, out: File::NULL, err: File::NULL) }
+    end
     def refuse(what)
       @last_error = "package transactions are not supported by yast-on-arch (#{what}); use Octopi/pacman"
       log.warn "Pkg (Arch stub): refused #{what}"

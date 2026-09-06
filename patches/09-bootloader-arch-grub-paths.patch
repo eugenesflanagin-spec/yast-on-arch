@@ -1,0 +1,104 @@
+diff --git a/src/lib/bootloader/grub2_widgets.rb b/src/lib/bootloader/grub2_widgets.rb
+index 029e036..8a82e91 100644
+--- a/src/lib/bootloader/grub2_widgets.rb
++++ b/src/lib/bootloader/grub2_widgets.rb
+@@ -422,8 +422,9 @@ module Bootloader
+       def handle(event)
+         return if event["ID"] != :browsegfx
+ 
+-        theme_dir = "/boot/grub2/themes/openSUSE"
+-        theme_dir = "/boot/grub2" unless ::Dir.exist?(theme_dir)
++        # Arch port: no openSUSE theme, and GRUB's upstream dir is /boot/grub.
++        theme_dir = "/boot/grub/themes"
++        theme_dir = "/boot/grub" unless ::Dir.exist?(theme_dir)
+ 
+         file = Yast::UI.AskForExistingFile(
+           theme_dir,
+diff --git a/src/lib/bootloader/grub2base.rb b/src/lib/bootloader/grub2base.rb
+index 8464124..68d634b 100644
+--- a/src/lib/bootloader/grub2base.rb
++++ b/src/lib/bootloader/grub2base.rb
+@@ -100,9 +100,11 @@ module Bootloader
+       grub_cfg = CFA::Grub2::GrubCfg.new
+       begin
+         grub_cfg.load
+-      rescue Errno::ENOENT
++      rescue Errno::ENOENT, Errno::EACCES
+         # there may not need to be grub.cfg generated (bnc#976534),(bsc#1124064)
+-        log.info "/boot/grub2/grub.cfg is missing. Defaulting to empty one."
++        # Arch port: also rescue EACCES -- /boot/grub/grub.cfg is 0600 root-only
++        # here, so an unprivileged read raises EACCES rather than ENOENT.
++        log.info "grub.cfg is missing or unreadable. Defaulting to empty one."
+       end
+       @sections = ::Bootloader::Sections.new(grub_cfg)
+       log.info "grub sections: #{@sections.all}"
+@@ -120,7 +122,8 @@ module Bootloader
+       @password.write
+       return if etc_only
+ 
+-      Yast::Execute.on_target("/usr/sbin/grub2-mkconfig", "-o", "/boot/grub2/grub.cfg",
++      # Arch port: grub-mkconfig, and GRUB's upstream /boot/grub layout.
++      Yast::Execute.on_target("grub-mkconfig", "-o", "/boot/grub/grub.cfg",
+         env: systemwide_locale)
+     end
+ 
+diff --git a/src/lib/bootloader/grub2pwd.rb b/src/lib/bootloader/grub2pwd.rb
+index 5450539..d61da35 100644
+--- a/src/lib/bootloader/grub2pwd.rb
++++ b/src/lib/bootloader/grub2pwd.rb
+@@ -132,7 +132,8 @@ module Bootloader
+     end
+ 
+     def encrypt(password)
+-      result = Yast::Execute.on_target("/usr/bin/grub2-mkpasswd-pbkdf2",
++      # Arch port: grub-mkpasswd-pbkdf2
++      result = Yast::Execute.on_target("grub-mkpasswd-pbkdf2",
+         env:      { "LANG" => "C" },
+         stdin:    "#{password}\n#{password}\n",
+         stdout:   :capture,
+diff --git a/src/lib/bootloader/grub_install.rb b/src/lib/bootloader/grub_install.rb
+index 70d0476..d9ba9e1 100644
+--- a/src/lib/bootloader/grub_install.rb
++++ b/src/lib/bootloader/grub_install.rb
+@@ -84,10 +84,13 @@ module Bootloader
+     # creates basic command for grub2 install without specifying any stage1
+     # locations
+     def basic_cmd(secure_boot, update_nvram)
+-      if Systeminfo.shim_needed?(@grub2_name, secure_boot)
+-        cmd = ["/usr/sbin/shim-install", "--config-file=/boot/grub2/grub.cfg"]
++      # Arch port: shim-install is an openSUSE/Debian shim-signed helper and does
++      # not exist on Arch, so guard on the binary rather than renaming it; grub2-*
++      # becomes GRUB's upstream grub-*.
++      if Systeminfo.shim_needed?(@grub2_name, secure_boot) && ::File.exist?("/usr/sbin/shim-install")
++        cmd = ["/usr/sbin/shim-install", "--config-file=/boot/grub/grub.cfg"]
+       else
+-        cmd = ["/usr/sbin/grub2-install", "--target=#{target}"]
++        cmd = ["grub-install", "--target=#{target}"]
+         # Do skip-fs-probe to avoid error when embedding stage1
+         # to extended partition
+         cmd << "--force" << "--skip-fs-probe"
+diff --git a/src/lib/bootloader/sections.rb b/src/lib/bootloader/sections.rb
+index e67903a..cf77e5f 100644
+--- a/src/lib/bootloader/sections.rb
++++ b/src/lib/bootloader/sections.rb
+@@ -45,7 +45,8 @@ module Bootloader
+     def write
+       return if default.empty?
+ 
+-      Yast::Execute.on_target("/usr/sbin/grub2-set-default", title_to_path(default))
++      # Arch port: GRUB upstream names are grub-*, not openSUSE's grub2-*.
++      Yast::Execute.on_target("grub-set-default", title_to_path(default))
+     end
+ 
+   private
+@@ -56,7 +57,9 @@ module Bootloader
+     def read_default
+       # Execute.on_target can return nil if call failed. It shows users error popup, but bootloader
+       # can continue with empty default section
+-      saved = Yast::Execute.on_target("/usr/bin/grub2-editenv", "list", stdout: :capture) || ""
++      # Arch port: grub-editenv with no file argument already defaults to the
++      # correct grubenv, so no path needs hardcoding here.
++      saved = Yast::Execute.on_target("grub-editenv", "list", stdout: :capture) || ""
+       saved_line = saved.lines.grep(/saved_entry=/).first || ""
+ 
+       default_path = saved_line[/saved_entry=(.*)$/, 1]

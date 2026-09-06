@@ -11,7 +11,9 @@ export RUBYLIB="$P/destdir/usr/share/YaST2/lib:$RUBYLIB"
 export LD_LIBRARY_PATH="$P/lib:$P/lib/yui:$LD_LIBRARY_PATH"
 # When launched from the desktop menu there is no terminal, so any failure is
 # invisible. Tee everything to a log in that case.
-if [ ! -t 2 ]; then
+# (YAST_LOG_DIRECT=1 means the caller already redirected stderr into that log,
+# e.g. the Qt Control Center -- tee-ing again would double every line.)
+if [ ! -t 2 ] && [ -z "${YAST_LOG_DIRECT:-}" ]; then
   YAST_LOG="${XDG_RUNTIME_DIR:-/tmp}/yast-on-arch.log"
   exec 2> >(tee -a "$YAST_LOG" >&2)
   echo "--- $(date "+%F %T") launch: $* ---" >&2
@@ -72,6 +74,13 @@ if [ "$ASROOT" = 1 ] && [ "$(id -u)" != 0 ]; then
   # so the loader exits 1 and GTK aborts. Root has no other use for $HOME here
   # (every path below is passed explicitly; root logs to /var/log/YaST2).
   PASS="$PASS YAST_Y2BASE=$P/lib/YaST2/bin/y2base YAST_UI=$UI HOME=/root"
+  # Perl modules (Users, Samba, Mail) and libstorage-ng need these too; sudo
+  # drops them like everything else. Forgetting PERL5LIB = "Can't locate
+  # YaST/YCP.pm" the moment a Perl-backed module (Samba) is opened.
+  PASS="$PASS PERL5LIB=$PERL5LIB LIBSTORAGE_CONFDIR=$LIBSTORAGE_CONFDIR AUGEAS_LENS_LIB=$AUGEAS_LENS_LIB"
+  # the invoking user, so root-side code (menu.rb) can hand desktop-only
+  # entries such as Octopi back to the desktop session
+  PASS="$PASS YAST_DESKTOP_USER=$(id -un) YAST_DESKTOP_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
     [ "$UI" = gtk ] && PASS="$PASS XDG_CONFIG_HOME=$P/gtkconf XDG_DATA_DIRS=/usr/share GTK_USE_PORTAL=0 XDG_DATA_HOME=$P/gtkconf/data"
   if [ "$UI" != ncurses ]; then
     # GUI as root on Wayland: go through XWayland and grant root access to it
