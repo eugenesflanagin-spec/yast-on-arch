@@ -1,0 +1,27 @@
+diff --git a/console/src/modules/Console.rb b/console/src/modules/Console.rb
+index 7e49077..952c2a3 100644
+--- a/console/src/modules/Console.rb
++++ b/console/src/modules/Console.rb
+@@ -167,9 +167,21 @@ module Yast
+       @unicodeMap = Misc.SysconfigRead(path(".etc.vconsole_conf.FONT_UNIMAP"), "")
+       Builtins.y2milestone("vconsole.conf: FONT: %1, FONT_MAP: %2, FONT_UNIMAP: %3", @font, @screenMap, @unicodeMap)
+ 
+-      @magic = Convert.to_string(
++      # Arch port: /etc/sysconfig/console is a SUSE file and does not exist here,
++      # so agent-ini logs "Can not open /etc/sysconfig/console" and the read
++      # yields nil.  Assigning that unconditionally threw away the "(B" default
++      # set in main, and since main itself calls Console() -> Restore, @magic was
++      # already nil by the time anything ran.  Init then passed it straight to
++      # UI.SetConsoleFont, which rejects it with "Parameter 1 is nil" on every
++      # language and console run.
++      #
++      # Only nil is guarded, not "": on a SUSE system where the file exists and
++      # CONSOLE_MAGIC is deliberately empty, an empty magic string is a real
++      # setting and must keep overriding the default.
++      magic = Convert.to_string(
+         SCR.Read(path(".sysconfig.console.CONSOLE_MAGIC"))
+       )
++      @magic = magic unless magic.nil?
+       @language = Language.GetCurrentLocaleString
+       Builtins.y2milestone("encoding %1", Encoding.console)
+       Encoding.console
