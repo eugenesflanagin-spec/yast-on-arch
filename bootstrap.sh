@@ -199,6 +199,10 @@ Y2="$PREFIX/destdir/usr/share/YaST2"
 for f in "$HERE"/arch/modules/*.rb; do install -Dm644 "$f" "$Y2/modules/$(basename "$f")"; done
 # arch/lib: cfa/grub2 copies that shadow the cfa_grub2 gem (/boot/grub, not /boot/grub2)
 ( cd "$HERE/arch/lib" && find . -type f -name '*.rb' -exec install -Dm644 {} "$Y2/lib/{}" \; )
+# arch/clients + arch/applications: Arch-only panels (KDE System Settings browser --
+# deliberately RootOnly=false, KCMs write per-user config)
+for f in "$HERE"/arch/clients/*.rb; do install -Dm644 "$f" "$Y2/clients/$(basename "$f")"; done
+for f in "$HERE"/arch/applications/*.desktop; do install -Dm644 "$f" "$PREFIX/destdir/usr/share/applications/YaST2/$(basename "$f")"; done
 
 
 # FIX: the Ruby layer hardcodes /usr for desktop files/data; follow Y2DIR instead.
