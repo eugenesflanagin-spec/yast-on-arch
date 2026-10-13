@@ -1,0 +1,118 @@
+Control Center: while searching, the group sidebar shows only matching groups.
+
+The stock group proxy filtered on column 2 with Qt::UserRole, which is the
+group's Comment; group .desktop files have none, so the sidebar never
+narrowed. Replace it with a small proxy that keeps exactly the groups that
+contain a module matching the search (all groups when the search is empty).
+
+Applies on top of patches 07 and 20.
+
+diff --git a/src/kcategorizedsortfilterproxymodel.cpp b/src/kcategorizedsortfilterproxymodel.cpp
+index 130e856..035980b 100644
+--- a/src/kcategorizedsortfilterproxymodel.cpp
++++ b/src/kcategorizedsortfilterproxymodel.cpp
+@@ -349,6 +349,11 @@ QString KCategorizedSortFilterProxyModel::matchingGroupFilterRegexp()
+ 	return QString("zzzz");
+ }
+ 
++QSet<QString> KCategorizedSortFilterProxyModel::matchingGroups() const
++{
++    return d->filterGroups;
++}
++
+ QString KCategorizedSortFilterProxyModel::filterFixedString()  const
+ {
+     return d->filterString;
+diff --git a/src/kcategorizedsortfilterproxymodel.h b/src/kcategorizedsortfilterproxymodel.h
+index 1b48087..9aadb32 100644
+--- a/src/kcategorizedsortfilterproxymodel.h
++++ b/src/kcategorizedsortfilterproxymodel.h
+@@ -25,6 +25,7 @@
+ #define KCATEGORIZEDSORTFILTERPROXYMODEL_H
+ 
+ #include <QSortFilterProxyModel>
++#include <QSet>
+ 
+ //#include "kdeui_export.h"
+ 
+@@ -120,6 +121,9 @@ public:
+ 
+     QString matchingGroupFilterRegexp();
+ 
++    /** Group ids that have at least one module matching the current filter */
++    QSet<QString> matchingGroups() const;
++
+     QString filterFixedString() const;
+ 
+ protected:
+diff --git a/src/main_window.cpp b/src/main_window.cpp
+index d640221..19512a9 100644
+--- a/src/main_window.cpp
++++ b/src/main_window.cpp
+@@ -64,6 +64,35 @@
+   Textdomain "control-center"
+ */
+ 
++// Group sidebar filter: while searching, show only the groups that contain a
++// matching module. (The stock regexp filter on column 2 compared the groups'
++// Comment, which group files don't have, so the sidebar never narrowed.)
++class GroupFilterProxyModel : public QSortFilterProxyModel
++{
++public:
++    GroupFilterProxyModel( QObject *parent ) : QSortFilterProxyModel( parent ), active( false ) {}
++
++    void setMatchingGroups( const QSet<QString> &g, bool on )
++    {
++	groups = g;
++	active = on;
++	invalidateFilter();
++    }
++
++protected:
++    virtual bool filterAcceptsRow( int row, const QModelIndex &parent ) const
++    {
++	if ( !active )
++	    return true;
++	QModelIndex idx = sourceModel()->index( row, YQDesktopFilesModel::Group, parent );
++	return groups.contains( sourceModel()->data( idx, Qt::UserRole ).toString() );
++    }
++
++private:
++    QSet<QString> groups;
++    bool active;
++};
++
+ class MainWindow::Private
+ {
+ public:
+@@ -86,7 +115,7 @@ public:
+     KCategorizedView * modview;
+     // category proxy model
+     KCategorizedSortFilterProxyModel * kcsfpm;
+-    QSortFilterProxyModel *gcsfpm;
++    GroupFilterProxyModel *gcsfpm;
+ 
+     QLineEdit *searchField;
+ 
+@@ -154,10 +183,8 @@ MainWindow::MainWindow( Qt::WindowFlags wflags )
+ 
+     leftPanelLayout->addLayout( searchLayout );    
+ 
+-    d->gcsfpm = new QSortFilterProxyModel( this );
++    d->gcsfpm = new GroupFilterProxyModel( this );
+     d->gcsfpm->setSourceModel( d->modmodel->groupsModel() );
+-    d->gcsfpm->setFilterKeyColumn( 2 );
+-    d->gcsfpm->setFilterRole( Qt::UserRole );
+ 
+     d->groupview = new ListView(  );
+ 
+@@ -361,8 +388,7 @@ void MainWindow::slotFilterChanged()
+     // force it, since a different set of the same size must show too
+     d->modview->setGridSize( d->modview->gridSize() );
+ 
+-    QString gr_filter = d->kcsfpm->matchingGroupFilterRegexp();
+-    d->gcsfpm->setFilterRegExp ( gr_filter );
++    d->gcsfpm->setMatchingGroups( d->kcsfpm->matchingGroups(), !stext.isEmpty() );
+ }
+ 
+ void MainWindow::initialMsg()

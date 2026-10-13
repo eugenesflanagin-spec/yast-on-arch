@@ -279,6 +279,7 @@ clone https://github.com/yast/yast-control-center.git yast-control-center
 ( cd yast-control-center
   grep -q YAST_LAUNCHER src/main_window.cpp || patch -s -p1 < "$HERE/patches/07-control-center-launcher-and-prefix.patch"
   grep -q "Cache: the categorized view" src/yqdesktopfilesmodel.cpp || patch -s -p1 < "$HERE/patches/20-control-center-search-perf.patch"
+  grep -q "class GroupFilterProxyModel" src/main_window.cpp || patch -s -p1 < "$HERE/patches/21-control-center-search-group-sidebar.patch"
   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX/destdir/usr" \
     -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_MODULE_PATH="$PREFIX/share/cmake/Modules" -DVERSION=4.7.0 >/dev/null
   cmake --build build -j"$(nproc)" >/dev/null && cmake --install build >/dev/null )
