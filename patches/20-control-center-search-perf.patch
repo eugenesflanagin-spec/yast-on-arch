@@ -1,0 +1,116 @@
+Control Center: search no longer freezes with thousands of modules.
+
+Each keystroke in the search field called setFilterFixedString(), which the
+proxy applies as many separate row removals; KCategorizedView rebuilds its
+whole layout after every one, asking every item for its size hint twice, and
+each size hint re-read the item's icon file (QIcon::fromTheme, no cache).
+With ~5,200 modules that is millions of PNG decodes per keystroke.
+
+- cache icons in YQDesktopFilesModel::findIcon
+- match the name in filterAcceptsRow and apply a filter change with a single
+  invalidate() (one layoutChanged) instead of per-block row removals
+- force one relayout after a filter change (layoutChanged alone only relays
+  out when the row count changed)
+- one sizeHintForIndex() call per item instead of two
+
+Applies on top of patch 07.
+
+diff --git a/src/kcategorizedsortfilterproxymodel.cpp b/src/kcategorizedsortfilterproxymodel.cpp
+index c571fb2..130e856 100644
+--- a/src/kcategorizedsortfilterproxymodel.cpp
++++ b/src/kcategorizedsortfilterproxymodel.cpp
+@@ -311,7 +311,12 @@ bool KCategorizedSortFilterProxyModel::filterAcceptsRow( int row, const QModelIn
+     QStringList keywordList = sourceModel()->data( i1, KeywordsRole ).toStringList();
+     QString keywords = keywordList.join(" ");
+ 
+-    bool nameMatches = QSortFilterProxyModel::filterAcceptsRow( row, srcindex ); 
++    // Match the name ourselves instead of via setFilterFixedString(): the base
++    // class applies a filter change as many separate row removals, and the
++    // categorized view rebuilds itself completely after each one.
++    QModelIndex ik = sourceModel()->index( row, filterKeyColumn(), srcindex );
++    bool nameMatches = sourceModel()->data( ik, filterRole() ).toString()
++	.contains( d->filterString, Qt::CaseInsensitive );
+     bool keywordMatches = ( !keywords.isEmpty() && keywords.contains( filterFixedString()) );
+ 
+     if( nameMatches || keywordMatches )
+@@ -326,10 +331,11 @@ bool KCategorizedSortFilterProxyModel::filterAcceptsRow( int row, const QModelIn
+ void KCategorizedSortFilterProxyModel::customFilterFunction( const QString &s )
+ {    
+     d->filterGroups.clear();
+-    setFilterFixedString( s );
+-    d->filterString = s; 
+-    invalidateFilter();
++    d->filterString = s;
++    // One layoutChanged instead of a removal per filtered-out block
+     invalidate();
++    // Build the mapping now so filterGroups is complete for the group filter
++    rowCount();
+ }
+ 
+ QString KCategorizedSortFilterProxyModel::matchingGroupFilterRegexp()
+diff --git a/src/kcategorizedview.cpp b/src/kcategorizedview.cpp
+index 0ada81d..1db7d80 100644
+--- a/src/kcategorizedview.cpp
++++ b/src/kcategorizedview.cpp
+@@ -1414,9 +1414,10 @@ void KCategorizedView::rowsInsertedArtifficial(const QModelIndex &parent,
+         QModelIndex index = d->proxyModel->index(k, d->proxyModel->sortColumn());
+         QModelIndex indexSize = d->proxyModel->index(k, 0);
+ 
+-        d->biggestItemSize = QSize(qMax(sizeHintForIndex(indexSize).width(),
++        const QSize hint = sizeHintForIndex(indexSize);
++        d->biggestItemSize = QSize(qMax(hint.width(),
+                                         d->biggestItemSize.width()),
+-                                   qMax(sizeHintForIndex(indexSize).height(),
++                                   qMax(hint.height(),
+                                         d->biggestItemSize.height()));
+ 
+         d->modelIndexList << index;
+diff --git a/src/main_window.cpp b/src/main_window.cpp
+index f8d824f..d640221 100644
+--- a/src/main_window.cpp
++++ b/src/main_window.cpp
+@@ -357,6 +357,9 @@ void MainWindow::slotFilterChanged()
+ {
+     QString stext = d->searchField->text();
+     d->kcsfpm->customFilterFunction( stext );
++    // layoutChanged only re-lays out the view when the row count changed;
++    // force it, since a different set of the same size must show too
++    d->modview->setGridSize( d->modview->gridSize() );
+ 
+     QString gr_filter = d->kcsfpm->matchingGroupFilterRegexp();
+     d->gcsfpm->setFilterRegExp ( gr_filter );
+diff --git a/src/yqdesktopfilesmodel.cpp b/src/yqdesktopfilesmodel.cpp
+index 7e18791..e8489af 100644
+--- a/src/yqdesktopfilesmodel.cpp
++++ b/src/yqdesktopfilesmodel.cpp
+@@ -25,6 +25,7 @@
+ #include <QDir>
+ #include <QIcon>
+ #include <QMap>
++#include <QHash>
+ #include <libintl.h>
+ 
+ #include "yqdesktopfilesmodel.h"
+@@ -273,6 +274,14 @@ QVariant YQDesktopFilesModel::translatedPropertyValue( const QModelIndex &index,
+  
+ QVariant YQDesktopFilesModel::findIcon(  QString &iconName ) const
+ {
++    // Cache: the categorized view asks for every item's size hint (and so its
++    // icon) on each relayout; with thousands of modules, re-reading the icon
++    // files every time froze the search field.
++    static QHash<QString, QIcon> cache;
++    QHash<QString, QIcon>::const_iterator it = cache.constFind( iconName );
++    if ( it != cache.constEnd() )
++	return *it;
++
+     QIcon icon = QIcon::fromTheme( iconName );
+     // qt5ct doesn't set a default theme
+     if ( icon.isNull() && QIcon::themeName().isEmpty() )
+@@ -280,6 +289,7 @@ QVariant YQDesktopFilesModel::findIcon(  QString &iconName ) const
+ 	QIcon::setThemeName( "hicolor" );
+ 	icon = QIcon::fromTheme( iconName );
+     }
++    cache.insert( iconName, icon );
+     return icon;
+ }
+  
