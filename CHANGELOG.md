@@ -43,6 +43,10 @@ All notable changes to yast-on-arch. Versions follow [semantic versioning](https
   shows network card addresses.
 - README: what the build really installs, module counts, root escalation, pinning.
 
+### Also fixed
+
+- `bootstrap.sh` only asks pacman for dependencies that aren't already satisfied, so systems with replacement packages (for example `autoconf-git`) no longer stop with "conflicting dependencies".
+
 ## 0.1.0 — 2026-10-13 (commit 5a87f65, never tagged)
 
 First release: `bootstrap.sh` and patches 01–21 build upstream libyui and YaST into
