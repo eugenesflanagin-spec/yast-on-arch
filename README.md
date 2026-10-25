@@ -7,9 +7,21 @@ non-SUSE port has existed since [YaST4Debian](https://en.wikipedia.org/wiki/YaST
 around 2010. This repo makes it build and run on Arch.
 
 It ships **patches and build scripts, not vendored code**. `bootstrap.sh` clones upstream
-libyui/YaST, applies the Arch fixes, and installs into a self-contained prefix
-(`~/libyui-port/prefix`). Your system is untouched apart from one pacman package (`dejagnu`)
-and a few user-scope gems.
+libyui/YaST at pinned commits, applies the Arch fixes, and installs into a self-contained
+prefix (`~/libyui-port/prefix`). Outside that prefix it installs:
+
+- **30 pacman packages** (`sudo pacman -S --needed`, already-installed ones are skipped):
+  `cmake ninja boost qt5-base gtk3 ncurses gettext libxcrypt pkgconf git ruby ruby-rake bison
+  flex libtool automake autoconf dejagnu docbook-xsl libxslt perl-xml-writer fdupes
+  ruby-nokogiri ruby-augeas augeas libxml2 json-c swig perl-crypt-smbhash xorg-xhost`
+  (`./bootstrap.sh --deps` prints the list without installing anything);
+- **user-scope Ruby gems** (`gem install --user-install`): `fast_gettext` (<3.0), `cheetah`,
+  `simpleidn`, `abstract_method`, `yast-rake`, `prime`, `cfa`, `cfa_grub2`, `ruby-dbus`;
+- **four menu entries** in `~/.local/share/applications` (from `desktop/`, with the real
+  launcher path filled in; an existing file of the same name that bootstrap didn't write is
+  left alone; `YAST_NO_MENU_ENTRIES=1` skips them);
+- **one systemd drop-in**, `/etc/systemd/system/ypbind.service.d/50-yast-arch-args.conf`,
+  only if `ypbind-mt` is installed (NIS client, see patch 19).
 
 ```bash
 git clone https://github.com/eugenesflanagin-spec/yast-on-arch
@@ -30,7 +42,9 @@ cd yast-on-arch && ./bootstrap.sh
 | `yast-devtools` | 2 patches |
 | `yast-ycp-ui-bindings` | 1 make-var override |
 | `yast-ruby-bindings` | **1 patch — required for Ruby ≥ 3.4** |
-| 23 YaST modules | install clean (pure Ruby file-copy) |
+| 24 YaST module repos | install clean (pure Ruby file-copy via `rake install`); for `yast-ldap` only the Ruby/Perl/SCR parts are copied, its C++ LDAP agent is not built |
+| `libstorage-ng` + `yast-storage-ng` | 1 patch (honour `--prefix`) |
+| `yast2-control-center` (Qt) | 3 patches |
 
 Working modules include services-manager, bootloader, country (keyboard/timezone/language),
 users, firewall, network, journal, samba client/server, nfs client/server, ntp-client,
@@ -85,8 +99,21 @@ This is probably the single most reusable thing here — it would affect any dis
 - **SCR agents are declarative.** Retargeting a config file at Arch paths is editing a
   four-line `.scr`, not writing code (`patches/04` shows the pattern).
 - **YaST needs real root.** It checks `Process.uid == 0`; being in `wheel` isn't enough. Use
-  `-r`, which passes the port's `RUBYLIB`/`Y2DIR` through `sudo` and, for GUI mode, routes via
-  XWayland with `xhost +SI:localuser:root`.
+  `-r`, which passes the port's `RUBYLIB`/`Y2DIR` through to root and, for GUI mode, routes via
+  XWayland with `xhost +SI:localuser:root` (`xorg-xhost`). With a terminal it uses `sudo`.
+  Without one (menu entries, Control Center clicks) it uses `sudo -n` if that works
+  (NOPASSWD or cached credentials), otherwise `pkexec` for Qt/GTK (polkit asks for the
+  password in a dialog; needs `polkit` and a running polkit agent, which every major desktop
+  has), otherwise it re-opens the command in a terminal window, otherwise it shows a desktop
+  notification/dialog explaining why nothing opened. `YAST_ESCALATE=sudo|pkexec|terminal`
+  forces one method; `YAST_DEBUG=1` prints the chosen method and command without running it.
+- **Boot loader writes are opt-in** (patch 12): `YAST_ALLOW_BOOTLOADER_WRITE=1 yast -r -q bootloader`.
+  `-r` passes that variable to root only when you set it to exactly `1`; it is never set for you.
+- **Upstream is pinned.** `bootstrap.sh` clones each upstream repository at the commit the
+  patches were made and tested against (the `PIN` table at the top of the script). A patch
+  that does not apply stops the build with a message naming it; `YAST_IGNORE_PATCH_FAILURES=1`
+  continues anyway, `YAST_UPSTREAM_UNPINNED=1` clones upstream's current branches instead.
+  Existing clones in `~/libyui-port` are reused as they are (with a warning if not at the pin).
 - **GTK aborts if your icon theme lives in `~/.local/share/icons`.** The sandboxed glycin
   SVG loader binds only `/usr`, `/nix/store` and fonts — never `/home` — so it cannot read
   user-local themes. GTK then fails even its `image-missing` fallback and dies on
@@ -111,7 +138,9 @@ GPL-2.0, matching upstream YaST and libyui. The patches here are derivative of G
 The real `yast2-control-center` (Qt) is ported: `~/libyui-port/yast control-center`
 (KDE menu: *YaST Control Center*). It runs as your user, so it follows your Qt/KDE
 theme, dark mode included, and escalates each module to root through `yast -r -q`
-only when you open it. Root modules get a copy of your `kdeglobals`, so they match.
+only when you open it (`sudo -n`, else a `pkexec` password dialog; see Notes). Root modules
+get a copy of your `kdeglobals`, so they match. Anything started without a terminal logs to
+`$XDG_RUNTIME_DIR/yast-on-arch.log`.
 
 Arch stand-ins live in `arch/`: `Pkg` (pacman-backed queries, no transactions),
 `InstURL`/`Packages`/`SLPAPI` (installer-only, no-ops) and a small `y2storage` shim
