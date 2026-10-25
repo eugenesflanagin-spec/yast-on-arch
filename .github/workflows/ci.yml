@@ -1,0 +1,116 @@
+# Build yast-on-arch from scratch and smoke-test it.
+#
+# On every push to main and every pull request to main, this runs bootstrap.sh
+# end-to-end in a clean archlinux:base-devel container, as a normal user with
+# passwordless sudo. That proves the pinned upstream commits still download,
+# every patch in patches/ still applies, and everything still builds against
+# today's Arch packages. Then it runs read-only smoke checks. It never starts a
+# YaST module. Everything happens in .github/ci/build-and-smoke.sh, which you
+# can run on your own PC too (see the comment at its top).
+#
+# The release workflow (release.yml) runs this same workflow before it makes a
+# release.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: bootstrap.sh in archlinux:base-devel
+    runs-on: ubuntu-latest
+    timeout-minutes: 300   # GitHub stops any job at 6 h
+    container:
+      image: archlinux:base-devel
+    env:
+      YOA_CI_CACHE: /ci-cache
+      YOA_CI_OUT: /ci-out
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Cache keys: the upstream clones by the PIN table (a new pin = a new cache);
+      # pacman packages and Ruby gems per ISO week (Arch is rolling, so they go stale).
+      - name: Cache keys
+        id: keys
+        run: |
+          echo "pins=$(sed -n '/^declare -A PIN=/,/^)/p' bootstrap.sh | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "week=$(date -u +%G-w%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore pacman package cache
+        id: pacman-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /var/cache/pacman/pkg
+          key: pacman-${{ steps.keys.outputs.week }}-${{ hashFiles('bootstrap.sh') }}
+          restore-keys: |
+            pacman-${{ steps.keys.outputs.week }}-
+            pacman-
+
+      - name: Restore gem cache
+        id: gem-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /ci-cache/gem
+          key: gems-${{ steps.keys.outputs.week }}-${{ hashFiles('bootstrap.sh') }}
+          restore-keys: |
+            gems-${{ steps.keys.outputs.week }}-
+
+      - name: Restore upstream clones
+        id: src-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /ci-cache/src
+          key: src-${{ steps.keys.outputs.pins }}
+          restore-keys: |
+            src-
+
+      - name: Build and smoke-test
+        env:
+          YOA_CI_SAVE_CACHE: '1'
+        run: bash .github/ci/build-and-smoke.sh
+
+      # Save only what was not restored exactly (a cache entry cannot be overwritten).
+      - name: Save pacman package cache
+        if: success() && steps.pacman-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /var/cache/pacman/pkg
+          key: pacman-${{ steps.keys.outputs.week }}-${{ hashFiles('bootstrap.sh') }}
+
+      - name: Save gem cache
+        if: success() && steps.gem-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /ci-cache/gem
+          key: gems-${{ steps.keys.outputs.week }}-${{ hashFiles('bootstrap.sh') }}
+
+      - name: Save upstream clones
+        if: success() && steps.src-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /ci-cache/src
+          key: src-${{ steps.keys.outputs.pins }}
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-logs
+          path: /ci-out/
+          if-no-files-found: warn
+          retention-days: 14
