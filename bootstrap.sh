@@ -85,7 +85,8 @@ clone() {
   [[ -n "${YAST_UPSTREAM_UNPINNED:-}" ]] && pin=""
   if [[ -d "$dir" ]]; then
     if [[ -n "$pin" ]]; then
-      head="$(git -C "$dir" rev-parse HEAD 2>/dev/null || echo unknown)"
+      head="$(git -C "$dir" rev-parse HEAD 2>/dev/null)" \
+        || die "$ROOT/$dir exists but has no checked-out commit (an interrupted clone?); delete it and re-run"
       [[ "$head" == "$pin" ]] || warn "$dir: existing clone is at ${head:0:12}, pinned commit is ${pin:0:12}; leaving it as is (delete $ROOT/$dir to re-clone)"
     fi
     return 0
