@@ -137,7 +137,14 @@ fi
 
 # ---------------------------------------------------------------- dependencies
 say "Installing dependencies"
-sudo pacman -S --needed --noconfirm "${PACMAN_DEPS[@]}"
+# Only what is not already satisfied: pacman -T honours "provides", so a replacement
+# package (autoconf-git for autoconf, ...) counts, and pacman is not asked to swap it out.
+mapfile -t MISSING < <(pacman -T "${PACMAN_DEPS[@]}" || true)
+if (( ${#MISSING[@]} )); then
+  sudo pacman -S --needed --noconfirm "${MISSING[@]}"
+else
+  echo "  all pacman dependencies are already installed"
+fi
 for g in "${GEM_DEPS[@]}"; do
   name="${g%%:*}"; ver="${g#*:}"
   if [[ "$ver" != "$g" ]]; then gem install --user-install --no-document "$name" -v "$ver"
