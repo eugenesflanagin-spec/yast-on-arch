@@ -15,10 +15,10 @@ It ships **patches and build scripts, not vendored code**. `bootstrap.sh` clones
 libyui/YaST at pinned commits, applies the Arch fixes, and installs into a self-contained
 prefix (`~/libyui-port/prefix`). Outside that prefix it installs:
 
-- **30 pacman packages** (`sudo pacman -S --needed`, already-installed ones are skipped):
-  `cmake ninja boost qt5-base gtk3 ncurses gettext libxcrypt pkgconf git ruby ruby-rake bison
+- **32 pacman packages** (`sudo pacman -S --needed`, already-installed ones are skipped):
+  `cmake ninja boost qt5-base qt5-x11extras gtk3 ncurses gettext libxcrypt pkgconf git ruby ruby-rake bison
   flex libtool automake autoconf dejagnu docbook-xsl libxslt perl-xml-writer fdupes
-  ruby-nokogiri ruby-augeas augeas libxml2 json-c swig perl-crypt-smbhash xorg-xhost`
+  ruby-nokogiri ruby-augeas augeas libxml2 json-c swig perl-crypt-smbhash xorg-xhost doxygen`
   (`./bootstrap.sh --deps` prints the list without installing anything);
 - **user-scope Ruby gems** (`gem install --user-install`): `fast_gettext` (<3.0), `cheetah`,
   `simpleidn`, `abstract_method`, `yast-rake`, `prime`, `cfa`, `cfa_grub2`, `ruby-dbus`;
