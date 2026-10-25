@@ -26,10 +26,10 @@ ROOT="${YAST_ARCH_ROOT:-$HOME/libyui-port}"
 PREFIX="$ROOT/prefix"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-PACMAN_DEPS=(cmake ninja boost qt5-base gtk3 ncurses gettext libxcrypt pkgconf git
+PACMAN_DEPS=(cmake ninja boost qt5-base qt5-x11extras gtk3 ncurses gettext libxcrypt pkgconf git
              ruby ruby-rake bison flex libtool automake autoconf dejagnu
              docbook-xsl libxslt perl-xml-writer fdupes ruby-nokogiri ruby-augeas augeas
-             libxml2 json-c swig perl-crypt-smbhash xorg-xhost)
+             libxml2 json-c swig perl-crypt-smbhash xorg-xhost doxygen)
 # fast_gettext MUST be <3.0; Arch ships 3.1.0, so we pin it in the user gem dir.
 GEM_DEPS=("fast_gettext:<3.0" cheetah simpleidn abstract_method yast-rake prime cfa cfa_grub2 ruby-dbus)
 

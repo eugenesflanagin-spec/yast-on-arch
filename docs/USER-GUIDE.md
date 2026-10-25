@@ -64,10 +64,10 @@ It runs `sudo pacman -S --needed --noconfirm` for these packages (already-instal
 skipped):
 
 ```
-cmake ninja boost qt5-base gtk3 ncurses gettext libxcrypt pkgconf git
+cmake ninja boost qt5-base qt5-x11extras gtk3 ncurses gettext libxcrypt pkgconf git
 ruby ruby-rake bison flex libtool automake autoconf dejagnu
 docbook-xsl libxslt perl-xml-writer fdupes ruby-nokogiri ruby-augeas augeas
-libxml2 json-c swig perl-crypt-smbhash xorg-xhost
+libxml2 json-c swig perl-crypt-smbhash xorg-xhost doxygen
 ```
 
 It also installs these Ruby gems **for your user only** (`gem install --user-install`):
