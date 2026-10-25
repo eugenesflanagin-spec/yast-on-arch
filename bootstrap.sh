@@ -241,6 +241,9 @@ for f in yast2_desktop yast2_groups; do
   [[ -f $s ]] && sed -i "s|/usr/share/applications/YaST2|$D|g" "$s"
 done
 
+# arch/applications entries name the launcher as @YAST_ROOT@/yast; fill in the real path.
+sed -i "s|@YAST_ROOT@|$ROOT|g" "$D"/org.archlinux.yast.*.desktop
+
 # Software management: YaST's packager is welded to libzypp/RPM, so we point the
 # Software group at Octopi (pacman/AUR) instead.
 if command -v octopi >/dev/null; then
@@ -312,6 +315,25 @@ install -Dm644 "$HERE/arch/scrconf/probe.scr" "$Y2/scrconf/probe.scr"
 install -Dm755 "$HERE/bin/yast"     "$ROOT/yast"
 install -Dm755 "$HERE/bin/yui-demo" "$ROOT/yui-demo"
 install -Dm644 "$HERE/yast-env.sh"  "$ROOT/yast-env.sh"
+
+# Menu entries (desktop/*.desktop) with the real launcher path. A same-named file
+# that bootstrap did not write (no X-YaST-On-Arch-Generated key) is left alone.
+if [[ -z "${YAST_NO_MENU_ENTRIES:-}" ]]; then
+  say "Installing menu entries"
+  APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+  mkdir -p "$APPS"
+  for f in "$HERE"/desktop/*.desktop; do
+    dst="$APPS/$(basename "$f")"
+    if [[ -e "$dst" ]] && ! grep -q '^X-YaST-On-Arch-Generated=true' "$dst"; then
+      echo "  kept $dst (not written by bootstrap; delete it to get the generated one)"
+      continue
+    fi
+    sed -e "s|@YAST_ROOT@|$ROOT|g" -e '/^\[Desktop Entry\]/a X-YaST-On-Arch-Generated=true' "$f" > "$dst.tmp"
+    mv -f "$dst.tmp" "$dst"
+    echo "  $dst"
+  done
+  command -v update-desktop-database >/dev/null && update-desktop-database -q "$APPS" 2>/dev/null || true
+fi
 
 say "Done."
 cat <<EOM

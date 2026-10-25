@@ -14,7 +14,7 @@ X-SuSE-YaST-RootOnly=false
 X-SuSE-YaST-Keywords=kde,plasma,desktop,settings,appearance,theme,kcm
 
 Icon=preferences-system
-Exec=/usr/bin/yast2 kde_settings
+Exec=@YAST_ROOT@/yast -q kde_settings
 
 Name=KDE Plasma Settings
 GenericName=Desktop Settings

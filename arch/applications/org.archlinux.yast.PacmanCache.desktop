@@ -11,7 +11,7 @@ X-SuSE-YaST-RootOnly=true
 X-SuSE-YaST-Keywords=cache,clean,pacman,paccache
 
 Icon=octopi
-Exec=xdg-su -c "/usr/bin/yast2 pacman_cache"
+Exec=@YAST_ROOT@/yast -r -q pacman_cache
 
 Name=Package Cache Cleaner
 GenericName=Clean pacman cache
