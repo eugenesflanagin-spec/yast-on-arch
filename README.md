@@ -6,6 +6,11 @@ YaST was retired upstream — openSUSE Leap 16 dropped graphical YaST entirely �
 non-SUSE port has existed since [YaST4Debian](https://en.wikipedia.org/wiki/YaST) went dormant
 around 2010. This repo makes it build and run on Arch.
 
+**Version 0.2.0** — what changed: [CHANGELOG.md](CHANGELOG.md).
+**New here? Read the [User Guide](docs/USER-GUIDE.md)**: install from a fresh Arch system,
+starting modules from the menu, adding your own programs to the Control Center, what works and
+what doesn't, safety, troubleshooting, uninstall.
+
 It ships **patches and build scripts, not vendored code**. `bootstrap.sh` clones upstream
 libyui/YaST at pinned commits, applies the Arch fixes, and installs into a self-contained
 prefix (`~/libyui-port/prefix`). Outside that prefix it installs:
@@ -20,6 +25,8 @@ prefix (`~/libyui-port/prefix`). Outside that prefix it installs:
 - **four menu entries** in `~/.local/share/applications` (from `desktop/`, with the real
   launcher path filled in; an existing file of the same name that bootstrap didn't write is
   left alone; `YAST_NO_MENU_ENTRIES=1` skips them);
+- **your own Control Center entries**, only if you add some with `yast add-app`, in
+  `~/.local/share/yast-on-arch/applications` (see below);
 - **one systemd drop-in**, `/etc/systemd/system/ypbind.service.d/50-yast-arch-args.conf`,
   only if `ypbind-mt` is installed (NIS client, see patch 19).
 
@@ -30,7 +37,20 @@ cd yast-on-arch && ./bootstrap.sh
 ~/libyui-port/yast -r -g menu           # GTK Control Center (dark)
 ~/libyui-port/yast -r -q services-manager   # Qt
 ~/libyui-port/yast -r services-manager      # classic blue ncurses
+~/libyui-port/yast control-center           # Qt Control Center as your user
 ```
+
+### Your own programs in the Control Center
+
+```bash
+~/libyui-port/yast add-app --name "Process Monitor" --exec htop --terminal --icon utilities-system-monitor
+~/libyui-port/yast add-app --name "My Script" --exec ~/bin/my-script.sh --new-section "My Tools"
+~/libyui-port/yast list-apps          # remove-app NAME, list-sections, add-app --help
+```
+
+No root needed; the entries survive rebuilds. Details, and the manual way (a `.desktop` file
+in `arch/applications/` or a section in `arch/applications/groups/`), are in
+[User Guide section 5](docs/USER-GUIDE.md#5-add-your-own-app-or-section).
 
 ## Status
 
