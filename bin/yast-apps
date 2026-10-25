@@ -1,0 +1,293 @@
+#!/bin/bash
+# yast-on-arch -- add your own programs (and sections) to the YaST Control Center.
+#
+# Normally run through the launcher:  yast add-app | remove-app | list-apps |
+#                                      list-sections | remove-section | sync-apps
+#
+# Where things live:
+#   your entries (kept)   ${XDG_DATA_HOME:-~/.local/share}/yast-on-arch/applications/*.desktop
+#                         ${XDG_DATA_HOME:-~/.local/share}/yast-on-arch/applications/groups/*.desktop
+#   what YaST reads       <root>/prefix/destdir/usr/share/applications/YaST2/{,groups/}
+# Every add/remove copies your entries into the second folder ("sync"); bootstrap.sh
+# runs the same sync at its end, so a rebuild brings them back. Only files carrying
+# the line X-YaST-On-Arch-User=true are ever written or deleted there, so stock YaST
+# entries (and anything else you put there by hand) are never touched.
+set -euo pipefail
+
+MARK="X-YaST-On-Arch-User=true"
+ROOT="${YAST_APPS_ROOT:-$(cd "$(dirname "$(readlink -f "$0")")" && pwd)}"
+D="$ROOT/prefix/destdir/usr/share/applications/YaST2"
+U="${XDG_DATA_HOME:-$HOME/.local/share}/yast-on-arch/applications"
+
+die()  { printf 'yast: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'yast: warning: %s\n' "$*" >&2; }
+
+usage() {
+  cat <<'EOF'
+Add your own programs to the YaST Control Center (no root needed).
+
+  yast add-app --name NAME --exec COMMAND [options]
+      --icon ICON          icon name from your theme, or a full path to an image
+      --comment TEXT       one-line description (shown as the tooltip)
+      --keywords a,b,c     extra words the Control Center search finds it by
+      --section ID         put it in an existing section (see: yast list-sections);
+                           default: Misc
+      --new-section NAME   create a new section called NAME and put it there
+      --section-icon ICON  icon for the new section (default: folder)
+      --terminal           run COMMAND in a terminal window that stays open
+      --id ID              file name part (default: made from NAME; letters/digits only)
+      --replace            replace your own entry of the same ID
+      --force              accept a COMMAND whose program is not found right now
+
+  yast remove-app NAME|ID          remove one of your entries
+  yast remove-section ID           remove one of your (empty) sections
+  yast list-apps                   list your entries
+  yast list-sections               list every section ID you can use with --section
+  yast sync-apps                   copy your entries into YaST again (bootstrap does this)
+
+Restart the Control Center to see changes.
+EOF
+}
+
+[[ "$(id -u)" != 0 ]] || die "run this as your normal user, not as root (the entries belong to your user)"
+[[ -d "$D" ]] || die "YaST is not installed under $ROOT/prefix (run bootstrap.sh first)"
+
+is_mine() { [[ -f "$1" ]] && grep -qx "$MARK" "$1"; }
+
+# value KEY FILE -- first KEY=value of a .desktop file
+value() { sed -n "s/^$1=//p" "$2" | head -1; }
+
+# section ids: stock + yours
+section_ids() {
+  local f
+  for f in "$D"/groups/*.desktop "$U"/groups/*.desktop; do
+    [[ -f "$f" ]] || continue
+    value X-SuSE-YaST-Group "$f"
+  done | sort -u
+}
+
+check_text() {   # check_text WHAT VALUE
+  [[ -n "$2" ]] || die "$1 must not be empty"
+  [[ "$2" != *$'\n'* && "$2" != *$'\r'* ]] || die "$1 must be one line"
+  [[ "$2" != *[[:cntrl:]]* ]] || die "$1 contains control characters"
+  (( ${#2} <= 200 )) || die "$1 is too long (max 200 characters)"
+}
+
+check_icon() {
+  [[ -z "$1" ]] && return 0
+  if [[ "$1" == /* ]]; then [[ -f "$1" ]] || die "icon file $1 does not exist"
+  else [[ "$1" =~ ^[A-Za-z0-9._+-]+$ ]] || die "icon '$1': use an icon name (letters, digits, . _ + -) or a full path"
+  fi
+}
+
+slug() { printf '%s' "$1" | tr -cd 'A-Za-z0-9'; }
+
+validate_file() {   # validate_file FILE -- desktop-file-validate errors are fatal
+  command -v desktop-file-validate >/dev/null 2>&1 || return 0
+  local out
+  out="$(desktop-file-validate "$1" 2>&1 || true)"
+  if grep -q 'error:' <<<"$out"; then
+    printf '%s\n' "$out" >&2; return 1
+  fi
+  [[ -n "$out" ]] && printf '%s\n' "$out" >&2
+  return 0
+}
+
+# sync: your entries -> YaST's folder; remove marked copies whose source is gone
+sync_apps() {
+  local sub src dst n=0
+  for sub in "" groups/; do
+    mkdir -p "$D/$sub"
+    for src in "$U/$sub"*.desktop; do
+      [[ -f "$src" ]] || continue
+      is_mine "$src" || { warn "skipping $src (no $MARK line; not made by yast add-app)"; continue; }
+      dst="$D/$sub$(basename "$src")"
+      if [[ -e "$dst" ]] && ! is_mine "$dst"; then
+        warn "not replacing $dst: a YaST entry of that name already exists"; continue
+      fi
+      install -m644 "$src" "$dst"; n=$((n+1))
+    done
+    for dst in "$D/$sub"*.desktop; do
+      [[ -f "$dst" ]] && is_mine "$dst" && [[ ! -e "$U/$sub$(basename "$dst")" ]] && rm -f "$dst"
+    done
+  done
+  echo "yast: $n of your entries are in the Control Center"
+}
+
+add_app() {
+  local name="" exec="" icon="" comment="" keywords="" section="" newsec="" secicon="folder"
+  local term=0 id="" replace=0 force=0
+  while (( $# )); do
+    case "$1" in
+      --name) name="${2-}"; shift 2 ;;
+      --exec) exec="${2-}"; shift 2 ;;
+      --icon) icon="${2-}"; shift 2 ;;
+      --comment) comment="${2-}"; shift 2 ;;
+      --keywords) keywords="${2-}"; shift 2 ;;
+      --section) section="${2-}"; shift 2 ;;
+      --new-section) newsec="${2-}"; shift 2 ;;
+      --section-icon) secicon="${2-}"; shift 2 ;;
+      --terminal) term=1; shift ;;
+      --id) id="${2-}"; shift 2 ;;
+      --replace) replace=1; shift ;;
+      --force) force=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "add-app: unknown option '$1' (see: yast add-app --help)" ;;
+    esac
+  done
+  check_text "--name" "$name"
+  check_text "--exec" "$exec"
+  [[ -z "$comment" ]] || check_text "--comment" "$comment"
+  [[ -z "$keywords" ]] || { check_text "--keywords" "$keywords"; [[ "$keywords" =~ ^[^\;=]+$ ]] || die "--keywords: separate words with commas"; }
+  [[ "$exec" != *'\'* ]] || die "--exec must not contain backslashes (put the command in a script instead)"
+  [[ "$exec" != *%* ]]   || die "--exec must not contain % (desktop field codes such as %U are not supported here)"
+  check_icon "$icon"; check_icon "$secicon"
+  [[ -z "$section" || -z "$newsec" ]] || die "use --section or --new-section, not both"
+
+  local prog; read -r prog _ <<<"$exec"; prog="${prog%\"}"; prog="${prog#\"}"; prog="${prog%\'}"; prog="${prog#\'}"
+  if ! command -v -- "$prog" >/dev/null 2>&1 && [[ "$prog" != */* || ! -x "$prog" ]]; then
+    (( force )) || die "program '$prog' not found (check --exec, or add --force if it will exist later)"
+    warn "program '$prog' not found; adding anyway (--force)"
+  fi
+
+  if (( term )); then
+    local t
+    if command -v konsole >/dev/null 2>&1; then exec="konsole --hold -e $exec"
+    elif command -v xfce4-terminal >/dev/null 2>&1; then exec="xfce4-terminal --hold -x $exec"
+    elif command -v xterm >/dev/null 2>&1; then exec="xterm -hold -e $exec"
+    elif t="${TERMINAL:-}" && [[ -n "$t" ]] && command -v "$t" >/dev/null 2>&1; then exec="$t -e $exec"
+    else die "--terminal: no terminal found (konsole, xfce4-terminal or xterm; or set TERMINAL)"
+    fi
+  fi
+
+  [[ -n "$id" ]] || id="$(slug "$name")"
+  [[ "$id" =~ ^[A-Za-z0-9]+$ ]] || die "cannot make a file name from '$name'; give one with --id (letters and digits)"
+
+  local gid="${section:-Misc}" gfile=""
+  if [[ -n "$newsec" ]]; then
+    check_text "--new-section" "$newsec"
+    gid="$(slug "$newsec")"
+    [[ -n "$gid" ]] || die "cannot make a section ID from '$newsec' (use letters or digits)"
+    gfile="$U/groups/org.archlinux.yast.Group.User$gid.desktop"
+    if section_ids | grep -qx "$gid" && [[ ! -f "$gfile" ]]; then
+      die "a section with ID '$gid' already exists; use --section $gid"
+    fi
+  elif ! section_ids | grep -qx "$gid"; then
+    die "no section with ID '$gid' (see: yast list-sections, or create one with --new-section)"
+  fi
+
+  local base="org.archlinux.yast.User.$id.desktop" f
+  f="$U/$base"
+  if [[ -e "$D/$base" ]] && ! is_mine "$D/$base"; then
+    die "$base already exists in YaST and was not made by yast add-app; choose another --id"
+  fi
+  if [[ -e "$f" ]] && (( ! replace )); then
+    die "you already have an entry '$id' ($f); use --replace to overwrite it"
+  fi
+
+  mkdir -p "$U/groups"
+  local tmp; tmp="$(mktemp --suffix=.desktop "$U/.add-app.XXXXXX")"
+  {
+    echo "[Desktop Entry]"
+    echo "Type=Application"
+    echo "Categories=Settings;X-SuSE-YaST;"
+    echo "$MARK"
+    echo "X-SuSE-YaST-Group=$gid"
+    echo "X-SuSE-YaST-SortKey=50"
+    echo "X-SuSE-YaST-RootOnly=false"
+    [[ -n "$keywords" ]] && echo "X-SuSE-YaST-Keywords=$keywords"
+    echo "Icon=${icon:-application-x-executable}"
+    echo "Exec=$exec"
+    echo "Name=$name"
+    echo "GenericName=$name"
+    [[ -n "$comment" ]] && echo "Comment=$comment"
+    echo "StartupNotify=true"
+  } > "$tmp"
+  validate_file "$tmp" || { rm -f "$tmp"; die "the generated entry did not validate; nothing was added"; }
+
+  if [[ -n "$gfile" && ! -f "$gfile" ]]; then
+    local gtmp; gtmp="$(mktemp --suffix=.desktop "$U/groups/.add-app.XXXXXX")"
+    {
+      echo "[Desktop Entry]"
+      echo "Type=Application"
+      echo "Categories=Settings;Qt;X-SuSE-YaST;"
+      echo "$MARK"
+      echo "X-SuSE-YaST-Group=$gid"
+      echo "X-SuSE-YaST-SortKey=90"
+      echo "OnlyShowIn=X-SuSE-YaST;"
+      echo "Icon=$secicon"
+      echo "Name=$newsec"
+      echo "GenericName=$newsec"
+      echo "Exec=true"
+    } > "$gtmp"
+    validate_file "$gtmp" || { rm -f "$tmp" "$gtmp"; die "the generated section did not validate; nothing was added"; }
+    chmod 644 "$gtmp"; mv -f "$gtmp" "$gfile"
+    echo "yast: new section '$newsec' (ID $gid)"
+  fi
+  chmod 644 "$tmp"; mv -f "$tmp" "$f"
+  echo "yast: added '$name' to section $gid ($f)"
+  sync_apps
+}
+
+find_mine() {   # find_mine NAME|ID -> path of your entry
+  local f
+  for f in "$U"/*.desktop; do
+    [[ -f "$f" ]] && is_mine "$f" || continue
+    if [[ "$(basename "$f")" == "org.archlinux.yast.User.$1.desktop" || "$(basename "$f" .desktop)" == "$1" \
+          || "$(value Name "$f")" == "$1" ]]; then
+      echo "$f"; return 0
+    fi
+  done
+  return 1
+}
+
+remove_app() {
+  [[ -n "${1:-}" ]] || die "usage: yast remove-app NAME|ID"
+  local f; f="$(find_mine "$1")" || die "no entry '$1' of yours (see: yast list-apps)"
+  local n; n="$(value Name "$f")"
+  rm -f "$f"; echo "yast: removed '$n'"
+  sync_apps
+}
+
+remove_section() {
+  [[ -n "${1:-}" ]] || die "usage: yast remove-section ID"
+  local g="$U/groups/org.archlinux.yast.Group.User$1.desktop" f
+  [[ -f "$g" ]] && is_mine "$g" || die "no section '$1' of yours (stock sections cannot be removed)"
+  for f in "$U"/*.desktop "$D"/*.desktop; do
+    [[ -f "$f" ]] && [[ "$(value X-SuSE-YaST-Group "$f")" == "$1" ]] && is_mine "$f" \
+      && die "section '$1' still has entries; remove them first (yast list-apps)"
+  done
+  rm -f "$g"; echo "yast: removed section $1"
+  sync_apps
+}
+
+list_apps() {
+  local f n=0
+  for f in "$U"/*.desktop; do
+    [[ -f "$f" ]] && is_mine "$f" || continue
+    printf '%-24s %-16s %s\n' "$(basename "$f" .desktop | sed 's/^org\.archlinux\.yast\.User\.//')" \
+      "$(value X-SuSE-YaST-Group "$f")" "$(value Name "$f")"
+    n=$((n+1))
+  done
+  (( n )) || echo "(none yet -- see: yast add-app --help)"
+}
+
+list_sections() {
+  local f
+  for f in "$D"/groups/*.desktop "$U"/groups/*.desktop; do
+    [[ -f "$f" ]] || continue
+    printf '%-28s %s%s\n' "$(value X-SuSE-YaST-Group "$f")" "$(value Name "$f")" "$(is_mine "$f" && echo '  (yours)')"
+  done | sort -u
+}
+
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  add-app) add_app "$@" ;;
+  remove-app) remove_app "$@" ;;
+  remove-section) remove_section "$@" ;;
+  list-apps) list_apps ;;
+  list-sections) list_sections ;;
+  sync-apps) sync_apps ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

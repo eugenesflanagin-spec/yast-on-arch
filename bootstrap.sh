@@ -324,6 +324,11 @@ for f in "$HERE"/arch/modules/*.rb; do install -Dm644 "$f" "$Y2/modules/$(basena
 # deliberately RootOnly=false, KCMs write per-user config)
 for f in "$HERE"/arch/clients/*.rb; do install -Dm644 "$f" "$Y2/clients/$(basename "$f")"; done
 for f in "$HERE"/arch/applications/*.desktop; do install -Dm644 "$f" "$PREFIX/destdir/usr/share/applications/YaST2/$(basename "$f")"; done
+# arch/applications/groups: extra Control Center sections (group .desktop files)
+for f in "$HERE"/arch/applications/groups/*.desktop; do
+  [[ -f "$f" ]] || continue
+  install -Dm644 "$f" "$PREFIX/destdir/usr/share/applications/YaST2/groups/$(basename "$f")"
+done
 
 
 # FIX: the Ruby layer hardcodes /usr for desktop files/data; follow Y2DIR instead.
@@ -408,6 +413,8 @@ install -Dm755 "$HERE/arch/agents/ag_probe" "$PREFIX/lib/YaST2/servers_non_y2/ag
 install -Dm644 "$HERE/arch/scrconf/probe.scr" "$Y2/scrconf/probe.scr"
 
 install -Dm755 "$HERE/bin/yast"     "$ROOT/yast"
+install -Dm755 "$HERE/bin/yast-apps" "$ROOT/yast-apps"   # yast add-app / remove-app / list-apps
+install -Dm644 "$HERE/VERSION"       "$ROOT/VERSION"
 install -Dm755 "$HERE/bin/yui-demo" "$ROOT/yui-demo"
 install -Dm644 "$HERE/yast-env.sh"  "$ROOT/yast-env.sh"
 
@@ -430,6 +437,13 @@ if [[ -z "${YAST_NO_MENU_ENTRIES:-}" ]]; then
   command -v update-desktop-database >/dev/null && update-desktop-database -q "$APPS" 2>/dev/null || true
 fi
 
+# Entries added with "yast add-app" live in ~/.local/share/yast-on-arch/applications;
+# copy them into the (possibly rebuilt) prefix again.
+if [[ -d "${XDG_DATA_HOME:-$HOME/.local/share}/yast-on-arch/applications" ]]; then
+  say "Restoring your own Control Center entries (yast add-app)"
+  "$ROOT/yast-apps" sync-apps || warn "could not restore your own entries; run: $ROOT/yast sync-apps"
+fi
+
 say "Done."
 cat <<EOM
 
@@ -440,6 +454,7 @@ cat <<EOM
   $ROOT/yast -q services-manager  # Qt
   $ROOT/yast control-center       # classic Qt Control Center (as user; modules escalate on click)
   $ROOT/yast -r -g menu           # GTK Control Center, dark mode, as root
+  $ROOT/yast add-app --help       # add your own programs to the Control Center
 
   Note: services-manager takes 2-4 min to start -- it runs two systemctl
   calls per unit and a typical Arch box has ~1000 of them.
