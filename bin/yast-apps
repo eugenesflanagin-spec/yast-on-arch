@@ -80,7 +80,7 @@ check_icon() {
   fi
 }
 
-slug() { printf '%s' "$1" | tr -cd 'A-Za-z0-9'; }
+slug() { { printf '%s' "$1" | iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null || printf '%s' "$1"; } | tr -cd 'A-Za-z0-9'; }
 
 validate_file() {   # validate_file FILE -- desktop-file-validate errors are fatal
   command -v desktop-file-validate >/dev/null 2>&1 || return 0
