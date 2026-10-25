@@ -2,6 +2,26 @@
 
 All notable changes to yast-on-arch. Versions follow [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+### New
+
+- **Continuous integration** (`.github/workflows/ci.yml`): every push and pull request to `main`
+  runs `bootstrap.sh` from scratch in a clean `archlinux:base-devel` container, as a normal user,
+  and fails if a pinned commit cannot be fetched, a patch does not apply or anything does not
+  build. Then read-only smoke checks: `yast --version`, the client list, `list-sections`,
+  `add-app`/`list-apps`/`remove-app` with a throw-away home folder, `ag_probe --selftest`, missing
+  shared libraries, `desktop-file-validate`. No YaST module is ever started. The same script,
+  `.github/ci/build-and-smoke.sh`, runs on your own PC in Docker.
+- **Releases** (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` that matches `VERSION`
+  runs the full CI and then publishes a GitHub release with the source tarball and `SHA256SUMS`;
+  the text comes from this file. A published release is never overwritten.
+
+### Fixed
+
+- `bootstrap.sh` now installs `qt5-x11extras` (libyui-qt needs it) and `doxygen` (libstorage-ng's
+  build runs it). On a fresh Arch system the build stopped without them; the first CI run found it.
+
 ## 0.2.0 — 2026-10-25
 
 ### New

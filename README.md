@@ -149,6 +149,30 @@ This is probably the single most reusable thing here — it would affect any dis
 - Harmless warnings: `Target display-manager.target / syslog.target not found` (SUSE-isms),
   Nokogiri libxml version mismatch, `already initialized constant TMP_RUBY_PREFIX`.
 
+## Continuous integration and releases
+
+- **CI** ([`ci.yml`](.github/workflows/ci.yml)) runs on every push and pull request to `main`. It
+  runs `bootstrap.sh` from scratch in a clean `archlinux:base-devel` container, as a normal user
+  with passwordless sudo, and fails if a pinned commit cannot be fetched, any patch does not
+  apply, a module fails to install or anything does not build. Then it does read-only smoke
+  checks (`yast --version`, `list-sections`, `add-app`/`list-apps`/`remove-app` in a throw-away
+  home folder, `ag_probe --selftest`, missing libraries, `desktop-file-validate`). It never
+  starts a YaST module. Logs are kept as the `ci-logs` artifact of each run.
+- **Run the same check on your PC** (Docker; it builds in the container and leaves your own
+  installation alone):
+
+  ```bash
+  docker run --rm -v "$PWD":/src:ro archlinux:base-devel /src/.github/ci/build-and-smoke.sh
+  ```
+- **Releases** ([`release.yml`](.github/workflows/release.yml)): set `VERSION`, add its section
+  to `CHANGELOG.md`, then push a tag `vX.Y.Z` that equals `v` + `VERSION`. The full CI runs
+  first; only if it passes is a GitHub release made with `yast-on-arch-X.Y.Z.tar.gz` and
+  `SHA256SUMS`. A release that is already published is never overwritten.
+- **No prebuilt binaries.** The built prefix is not relocatable: about 570 of its files contain
+  the absolute build path (compiled-in search paths, library RUNPATHs, SCR agent and menu
+  files), and it is tied to the exact Ruby, ICU, Boost and Qt versions Arch had on the day it
+  was built, so it would break after a few weeks of updates. Build it with `bootstrap.sh`.
+
 ## Licence
 
 GPL-2.0, matching upstream YaST and libyui. The patches here are derivative of GPL-2.0 code.
