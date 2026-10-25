@@ -18,6 +18,7 @@ if [ ! -t 2 ]; then
   [ -z "${YAST_LOG_DIRECT:-}" ] && exec 2> >(tee -a "$YAST_LOG" >&2)
   echo "--- $(date "+%F %T") launch: $* ---" >&2
 fi
+ORIG_ARGS=("$@")   # kept for re-running in a terminal (see -r below)
 UI=ncurses; ASROOT=0
 while :; do case "${1:-}" in
   -q) UI=qt;  shift ;;
@@ -66,36 +67,44 @@ if [ -z "$1" ]; then
 fi
 if [ "$ASROOT" = 1 ] && [ "$(id -u)" != 0 ]; then
   # YaST checks Process.uid == 0 literally -- being in wheel is not enough.
-  # sudo resets the environment, so pass the port's paths through explicitly.
-  PASS="RUBYLIB=$RUBYLIB Y2DIR=$Y2DIR LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
-  PASS="$PASS GEM_PATH=$GEM_PATH PATH=$PATH Y2BASE_PLUGINDIR=$Y2BASE_PLUGINDIR"
+  # sudo/pkexec reset the environment, so pass the port's paths through explicitly
+  # (as arguments to env, which both of them leave alone).
+  PASS=("RUBYLIB=$RUBYLIB" "Y2DIR=$Y2DIR" "LD_LIBRARY_PATH=$LD_LIBRARY_PATH")
+  PASS+=("GEM_PATH=$GEM_PATH" "PATH=$PATH" "Y2BASE_PLUGINDIR=$Y2BASE_PLUGINDIR")
   # HOME must NOT be the user's home: GTK's sandboxed SVG loader (glycin) builds
   # its bwrap from $HOME/.cache and root cannot read a user's cache on this box,
   # so the loader exits 1 and GTK aborts. Root has no other use for $HOME here
   # (every path below is passed explicitly; root logs to /var/log/YaST2).
-  PASS="$PASS YAST_Y2BASE=$P/lib/YaST2/bin/y2base YAST_UI=$UI HOME=/root"
+  PASS+=("YAST_Y2BASE=$P/lib/YaST2/bin/y2base" "YAST_UI=$UI" "HOME=/root")
   # Perl modules (Users, Samba, Mail) and libstorage-ng need these too; sudo
   # drops them like everything else. Forgetting PERL5LIB = "Can't locate
   # YaST/YCP.pm" the moment a Perl-backed module (Samba) is opened.
-  PASS="$PASS PERL5LIB=$PERL5LIB LIBSTORAGE_CONFDIR=$LIBSTORAGE_CONFDIR AUGEAS_LENS_LIB=$AUGEAS_LENS_LIB"
+  PASS+=("PERL5LIB=$PERL5LIB" "LIBSTORAGE_CONFDIR=$LIBSTORAGE_CONFDIR" "AUGEAS_LENS_LIB=$AUGEAS_LENS_LIB")
   # the invoking user, so root-side code (menu.rb) can hand desktop-only
   # entries such as Octopi back to the desktop session
-  PASS="$PASS YAST_DESKTOP_USER=$(id -un) YAST_DESKTOP_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-    [ "$UI" = gtk ] && PASS="$PASS XDG_CONFIG_HOME=$P/gtkconf XDG_DATA_DIRS=/usr/share GTK_USE_PORTAL=0 XDG_DATA_HOME=$P/gtkconf/data"
+  PASS+=("YAST_DESKTOP_USER=$(id -un)" "YAST_DESKTOP_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}")
+  # Safety guard of patch 12: passed through ONLY when the user set it to exactly 1
+  # (the value the guard checks). Never set by the launcher itself.
+  [ "${YAST_ALLOW_BOOTLOADER_WRITE:-}" = 1 ] && PASS+=("YAST_ALLOW_BOOTLOADER_WRITE=1")
+  [ "$UI" = gtk ] && PASS+=("XDG_CONFIG_HOME=$P/gtkconf" "XDG_DATA_DIRS=/usr/share" "GTK_USE_PORTAL=0" "XDG_DATA_HOME=$P/gtkconf/data")
   if [ "$UI" != ncurses ]; then
     # GUI as root on Wayland: go through XWayland and grant root access to it
-    xhost +SI:localuser:root >/dev/null 2>&1
+    # (xhost is in the xorg-xhost package)
+    if command -v xhost >/dev/null 2>&1; then
+      xhost +SI:localuser:root >/dev/null 2>&1
+    else
+      echo "yast: xhost not found (install xorg-xhost); a root GUI may not be able to open a window" >&2
+    fi
     # ~/.Xauthority usually does NOT exist on a Wayland/KDE session -- the real
     # cookie lives at /run/user/<uid>/xauth_XXXXXX. If XAUTHORITY is unset (e.g.
     # when launched from the desktop menu rather than a shell), discover it, or
     # root cannot reach the display and the window dies instantly.
     XAUTH="${XAUTHORITY:-}"
     if [ -z "$XAUTH" ] || [ ! -r "$XAUTH" ]; then
-      XAUTH="$(ls -1t /run/user/$(id -u)/xauth_* 2>/dev/null | head -1)"
+      XAUTH="$(ls -1t "/run/user/$(id -u)"/xauth_* 2>/dev/null | head -1)"
     fi
-    [ -n "$XAUTH" ] && PASS="$PASS XAUTHORITY=$XAUTH"
-    PASS="$PASS DISPLAY=${DISPLAY:-:0}"
-    PASS="$PASS QT_QPA_PLATFORM=xcb GDK_BACKEND=x11"
+    [ -n "$XAUTH" ] && PASS+=("XAUTHORITY=$XAUTH")
+    PASS+=("DISPLAY=${DISPLAY:-:0}" "QT_QPA_PLATFORM=xcb" "GDK_BACKEND=x11")
     if [ "$UI" = qt ]; then
       # Root has no KDE settings, so Qt modules would come up in the light
       # Fusion look. Give root a private XDG_CONFIG_HOME holding a copy of the
@@ -104,16 +113,78 @@ if [ "$ASROOT" = 1 ] && [ "$(id -u)" != 0 ]; then
       # mode included. Refreshed on every launch so theme changes follow.
       mkdir -p "$P/qtconf"
       cp -f "$HOME/.config/kdeglobals" "$P/qtconf/kdeglobals" 2>/dev/null
-      PASS="$PASS XDG_CONFIG_HOME=$P/qtconf QT_QPA_PLATFORMTHEME=kde"
-      PASS="$PASS XDG_DATA_DIRS=/usr/share:$P/destdir/usr/share"
+      PASS+=("XDG_CONFIG_HOME=$P/qtconf" "QT_QPA_PLATFORMTHEME=kde")
+      PASS+=("XDG_DATA_DIRS=/usr/share:$P/destdir/usr/share")
     fi
-    [ "$UI" = gtk ] && PASS="$PASS GTK_THEME=${GTK_THEME:-Adwaita:dark}"
+    [ "$UI" = gtk ] && PASS+=("GTK_THEME=${GTK_THEME:-Adwaita:dark}")
+  fi
+
+  # How to become root. With a terminal, sudo can ask for the password. Without one
+  # (desktop menu entry, a Control Center click) a password prompt has nowhere to go,
+  # so: sudo if it works non-interactively (NOPASSWD / cached), else pkexec (polkit
+  # shows a graphical password dialog) for Qt/GTK, else re-run this command in a
+  # terminal window, else show a visible error. YAST_ESCALATE=sudo|pkexec|terminal
+  # forces one method.
+  CMD=("$P/lib/YaST2/bin/y2base" "$1" "$UI" "${@:2}")
+  find_terminal() {
+    local t
+    for t in ${TERMINAL:-} konsole gnome-terminal xfce4-terminal alacritty kitty foot xterm x-terminal-emulator; do
+      command -v "$t" >/dev/null 2>&1 && { echo "$t"; return 0; }
+    done
+    return 1
+  }
+  show_error() {
+    local msg="$1"
+    echo "yast: $msg" >&2
+    if command -v notify-send >/dev/null 2>&1; then notify-send -a YaST -i dialog-error "YaST" "$msg" 2>/dev/null && return
+    fi
+    if command -v kdialog >/dev/null 2>&1; then kdialog --title YaST --error "$msg" 2>/dev/null && return
+    fi
+    command -v zenity >/dev/null 2>&1 && zenity --error --title=YaST --text="$msg" 2>/dev/null
+  }
+  method="${YAST_ESCALATE:-}"
+  if [ -z "$method" ]; then
+    if [ -t 0 ]; then method=sudo
+    elif sudo -n true 2>/dev/null; then method=sudo-n
+    elif [ "$UI" != ncurses ] && command -v pkexec >/dev/null 2>&1; then method=pkexec
+    elif find_terminal >/dev/null; then method=terminal
+    else method=none
+    fi
   fi
   if [ -n "${YAST_DEBUG:-}" ]; then
-    echo "would run as root:"; echo "  sudo env $PASS $P/lib/YaST2/bin/y2base $1 $UI ${*:2}"; exit 0
+    echo "would escalate via: $method"
+    echo "would run as root:"; printf '  sudo env'; printf ' %q' "${PASS[@]}" "${CMD[@]}"; echo; exit 0
   fi
-  echo "escalating to root via sudo (YaST requires uid 0)..." >&2
-  exec sudo env $PASS "$P/lib/YaST2/bin/y2base" "$1" "$UI" "${@:2}"
+  LOGHINT="${XDG_RUNTIME_DIR:-/tmp}/yast-on-arch.log"
+  case "$method" in
+    sudo)
+      echo "escalating to root via sudo (YaST requires uid 0)..." >&2
+      exec sudo env "${PASS[@]}" "${CMD[@]}" ;;
+    sudo-n)
+      exec sudo -n env "${PASS[@]}" "${CMD[@]}" ;;
+    pkexec)
+      echo "escalating to root via pkexec (YaST requires uid 0)..." >&2
+      pkexec /usr/bin/env "${PASS[@]}" "${CMD[@]}"; rc=$?
+      # 126 = authentication dismissed or refused, 127 = no polkit agent / not authorised
+      if [ "$rc" = 126 ] || [ "$rc" = 127 ]; then
+        show_error "Could not get root rights for '$1' (pkexec exit $rc: password dialog dismissed, or no polkit agent running). Start it from a terminal instead: $SELF/yast ${ORIG_ARGS[*]}"
+      fi
+      exit "$rc" ;;
+    terminal)
+      term="$(find_terminal)" || { show_error "No terminal emulator found to ask for the sudo password for '$1'. Log: $LOGHINT"; exit 1; }
+      # inside the terminal stdin is a TTY, so this re-run takes the plain sudo path;
+      # keep the window open if it fails so the error stays readable
+      inner=(bash -c '"$@"; rc=$?; if [ "$rc" != 0 ]; then echo; read -rp "yast exited with status $rc -- press Enter to close " _; fi; exit "$rc"' yast "$SELF/yast" "${ORIG_ARGS[@]}")
+      case "$term" in
+        gnome-terminal) exec "$term" -- "${inner[@]}" ;;
+        xfce4-terminal) exec "$term" -x "${inner[@]}" ;;
+        kitty|foot)     exec "$term" "${inner[@]}" ;;
+        *)              exec "$term" -e "${inner[@]}" ;;
+      esac ;;
+    *)
+      show_error "Root rights are needed for '$1', but there is no terminal for a sudo password and pkexec is not available. Run it from a terminal: $SELF/yast ${ORIG_ARGS[*]}  (log: $LOGHINT)"
+      exit 1 ;;
+  esac
 fi
 export YAST_Y2BASE="$P/lib/YaST2/bin/y2base" YAST_UI="$UI"
 exec "$P/lib/YaST2/bin/y2base" "$1" "$UI" "${@:2}"
