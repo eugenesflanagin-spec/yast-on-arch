@@ -5,10 +5,10 @@ because hwinfo is not packaged. Without it every `SCR.Read(.probe.*)` returns ni
 
 ## Files
 
-| file | install to |
+| file in this repo | installed by `bootstrap.sh` to |
 |---|---|
-| `servers_non_y2/ag_probe` | `prefix/lib/YaST2/servers_non_y2/ag_probe` (`Directory.agentdir`), `install -Dm755` |
-| `scrconf/probe.scr` | `prefix/destdir/usr/share/YaST2/scrconf/probe.scr`, `install -Dm644` |
+| `arch/agents/ag_probe` | `prefix/lib/YaST2/servers_non_y2/ag_probe` (`Directory.agentdir`), `install -Dm755` |
+| `arch/scrconf/probe.scr` | `prefix/destdir/usr/share/YaST2/scrconf/probe.scr`, `install -Dm644` |
 
 `.probe` is not claimed by any other `.scr`, so mounting it displaces nothing.
 
@@ -47,9 +47,13 @@ writes (`HwStatus#Save`) so it does not spam the log.
 
 ## Verifying
 
-    ag_probe --selftest        # no SCR, prints every path in YCP form
+    source ~/libyui-port/yast-env.sh    # YaST's Perl modules (PERL5LIB) and Y2DIR
+    ~/libyui-port/prefix/lib/YaST2/servers_non_y2/ag_probe --selftest
+                                        # no SCR, prints every path in YCP form
 
-    Y2DIR=<this dir>:$P/share/YaST2 ruby -e \
+    # through SCR: Y2DIR must include the installed modules' tree, where probe.scr is
+    Y2DIR=~/libyui-port/prefix/destdir/usr/share/YaST2:$Y2DIR ruby -e \
       'require "yast"; include Yast; p SCR.Read(path(".probe.netcard"))'
 
-`SELFTEST.txt` holds both, run as the unprivileged user against real hardware.
+[`probe-agent-selftest.txt`](probe-agent-selftest.txt) (next to this file) holds the output
+of both, run as the unprivileged user against real hardware.
