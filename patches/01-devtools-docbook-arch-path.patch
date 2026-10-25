@@ -1,5 +1,5 @@
---- /tmp/claude-1000/-home-user/beb7157d-6224-49bf-a994-6a6f856a43d9/scratchpad/y2devtools.m4.orig	2026-09-06 10:50:52.260260108 -0400
-+++ build-tools/aclocal/y2devtools.m4	2026-09-06 10:50:52.267591466 -0400
+--- a/build-tools/aclocal/y2devtools.m4
++++ b/build-tools/aclocal/y2devtools.m4
 @@ -11,7 +11,7 @@
          CAT_ENTRY_START='<!--'
          CAT_ENTRY_END='-->'
