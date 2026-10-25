@@ -1,0 +1,120 @@
+# Make a GitHub release of yast-on-arch.
+#
+# How it runs:
+#   * Push a tag like v0.3.0 -> checks the tag equals "v" + VERSION, runs the full
+#     CI build (ci.yml) and, only if that passes, creates the GitHub release with
+#     the source tarball and SHA256SUMS attached. The release text is the
+#     CHANGELOG.md section of that version.
+#   * "Run workflow" button (or: gh workflow run release.yml --ref BRANCH)
+#     -> the same checks and build, but NO release: the files are kept as a
+#     downloadable "release-files" artifact on the workflow run page.
+#
+# A release that is already published is never overwritten (delete it first if
+# you really want to rebuild it). There is no prebuilt binary: see README,
+# "Continuous integration and releases".
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# By default the jobs may only read the repository. Only the final "release"
+# job gets permission to create releases.
+permissions:
+  contents: read
+
+# Never run two release builds for the same tag/branch at the same time.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # 1. Read the version, check it matches the tag, pack the source, write the notes.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read VERSION and check it against the tag
+        id: ver
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          VER=$(.github/ci/release-info.sh version)
+          echo "VERSION: $VER"
+          # On a tag push the tag must be exactly "v" + VERSION; stop here if not.
+          if [ "$REF_TYPE" = tag ]; then
+            .github/ci/release-info.sh check "$REF_NAME"
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Source tarball, SHA256SUMS and release notes
+        env:
+          VER: ${{ steps.ver.outputs.version }}
+        run: |
+          mkdir -p release
+          git archive --format=tar.gz --prefix="yast-on-arch-$VER/" -o "release/yast-on-arch-$VER.tar.gz" HEAD
+          (cd release && sha256sum -- * > SHA256SUMS)
+          n=$(find release -type f | wc -l); [ "$n" -eq 2 ] || { echo "::error::expected 2 release files, got $n"; ls -l release; exit 1; }
+          ls -l release; cat release/SHA256SUMS
+          .github/ci/release-info.sh notes "$VER" > release-notes.md
+          echo "yast-on-arch $VER" > release-title.txt
+          echo "Title: $(cat release-title.txt)"; cat release-notes.md
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: |
+            release/
+            release-notes.md
+            release-title.txt
+          if-no-files-found: error
+
+  # 2. The full CI build and smoke test (the same workflow as on every push).
+  ci:
+    needs: prepare
+    uses: ./.github/workflows/ci.yml
+
+  # 3. Create the GitHub release. Only for tag pushes, and only after CI passed.
+  release:
+    if: github.ref_type == 'tag'
+    needs: [prepare, ci]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create the release and upload files
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: .
+      - name: Create the release
+        run: |
+          ls -l release
+          # A published release for this tag already exists: stop, don't overwrite
+          # files people may have downloaded. A leftover draft (an earlier run that
+          # failed half-way) is finished instead.
+          if state=$(gh release view "$TAG" --json isDraft -q .isDraft 2>/dev/null); then
+            if [ "$state" = true ]; then
+              echo "Draft release $TAG exists: uploading the files again and publishing it"
+              gh release upload "$TAG" release/* --clobber
+              gh release edit "$TAG" --title "$(cat release-title.txt)" --notes-file release-notes.md --draft=false
+            else
+              echo "::error::release $TAG is already published; delete it first (gh release delete $TAG) if you want to rebuild it"
+              exit 1
+            fi
+          else
+            gh release create "$TAG" release/* --verify-tag \
+              --title "$(cat release-title.txt)" --notes-file release-notes.md
+          fi
+          gh release view "$TAG" --json url,assets -q '.url, (.assets[] | .name)'
