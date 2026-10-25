@@ -1,12 +1,25 @@
 #!/bin/bash
 # yast-on-arch -- build and run YaST on Arch Linux.
 #
-# Clones upstream libyui/YaST, applies the Arch portability patches in patches/,
-# and installs everything into a self-contained prefix. Nothing outside the
-# prefix is touched except one pacman package (dejagnu) and some user-scope gems.
+# Clones upstream libyui/YaST at pinned commits, applies the Arch portability
+# patches in patches/, and installs everything into a self-contained prefix
+# ($YAST_ARCH_ROOT, default ~/libyui-port). Outside the prefix it installs:
+#   - the pacman packages in PACMAN_DEPS below (sudo pacman -S --needed)
+#   - the Ruby gems in GEM_DEPS, for your user only (gem install --user-install)
+#   - menu entries in ~/.local/share/applications (opt out: YAST_NO_MENU_ENTRIES=1)
+#   - /etc/systemd/system/ypbind.service.d/50-yast-arch-args.conf, only if
+#     ypbind-mt is installed (NIS client)
 #
 #   ./bootstrap.sh            # full build
 #   ./bootstrap.sh --deps     # just print the dependencies and exit
+#
+# Environment:
+#   YAST_ARCH_ROOT=<dir>            build/install location (default ~/libyui-port)
+#   YAST_UPSTREAM_UNPINNED=1        clone upstream's current default branches instead of
+#                                   the pinned commits below (patches may then not apply)
+#   YAST_IGNORE_PATCH_FAILURES=1    warn and continue when a patch does not apply
+#                                   (default: stop with an error)
+#   YAST_NO_MENU_ENTRIES=1          do not install the desktop/ menu entries
 set -euo pipefail
 
 ROOT="${YAST_ARCH_ROOT:-$HOME/libyui-port}"
@@ -21,7 +34,99 @@ PACMAN_DEPS=(cmake ninja boost qt5-base gtk3 ncurses gettext libxcrypt pkgconf g
 GEM_DEPS=("fast_gettext:<3.0" cheetah simpleidn abstract_method yast-rake prime cfa cfa_grub2 ruby-dbus)
 
 say() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33mWARNING:\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Upstream commits the patches in patches/ are known to apply to (and that this
+# port was built and tested with). Keyed by clone directory name; libyui-qt and
+# libyui-ncurses come from the libyui monorepo.
+declare -A PIN=(
+  [libyui]=9149299f60237acc8d360403d317854d484bcde3
+  [libyui-gtk]=140d203c1a09dac97f058a5d4efb0d071d2440b8
+  [yast-devtools]=9c503683e161a418492758c4483e792e996a2e49
+  [yast-core]=ab3a468cee65221c2f92a29bf014352ff7652061
+  [yast-ycp-ui-bindings]=a40f7591dbc6d78e726afcbf85b5e01c8d48bcc6
+  [yast-ruby-bindings]=89d7cb7c10600209b404b2efb5d05b0340f5e418
+  [yast-perl-bindings]=1f8c25104a79e08e24815ec7afbb6ab56bcb0b6d
+  [yast-yast2]=a393fc9e01135004cd692c09b63a66c6bea282cb
+  [yast-services-manager]=15debf6ab86f22a789040f41192400640b4f846d
+  [yast-country]=de4395086dcda927c7b3a831cd85082956d4b0bc
+  [yast-users]=093eec2173a26345b5a17fc09fa7919865006534
+  [yast-firewall]=ece98713b566677c666fda514622b6a93503701d
+  [yast-bootloader]=3770984fe3d9592d2d03f93579aef7aab6bdf43e
+  [yast-network]=8d225599ffd14ee3c70b9af7334afa219d09bd55
+  [yast-journal]=06f2bf9f27293f741ce3ac75ccd55d0690e8ede2
+  [yast-samba-client]=899cb51fd8f3deb489b91a35cba9fc9bffd9004b
+  [yast-samba-server]=bb4fb06520dae0c0a00afbd5f05041ef058ba12f
+  [yast-nfs-client]=0d30b50f7d447ed5c7eb7c236a5cbfb78541222e
+  [yast-nfs-server]=d2e8c6a44821a3e2e8fa66035f51242ef550b4ad
+  [yast-ntp-client]=20ab8f4c9d69e0c192d0cea685595e5290668007
+  [yast-security]=1d4fa74267b2ecd3c7d9ff0dc3f6d4d41592c50a
+  [yast-sysconfig]=0e36728dc9245fc922db8023040d328d2dccf6be
+  [yast-alternatives]=9a715c43aed2b432d3bbb593dc1759264a9b6ac7
+  [yast-apparmor]=71c998380e6048c38b34ef8b9755c25064d04643
+  [yast-iscsi-client]=c71cfe4442c6f93301ebdb5d7045c31c80b51f37
+  [yast-ldap]=22e321987aa23bdf1545921e6887b2779465af0b
+  [yast-nis-client]=1e40a62430fd8b36e4f8a193f9c31c8b4ac6e62b
+  [yast-proxy]=a1a10f1ba8ebb99a5bc784a1ed343a7a4cb35979
+  [yast-tftp-server]=b4f89756c7b4ee35aa22ed6bb53adecbae9c8942
+  [yast-vpn]=11bf798bca777e8d0b35e512925911ebb022648e
+  [yast-pam]=964823f65afda5e05d1b650d11e5e1c81acb27bf
+  [libstorage-ng]=8b83c8cbec1ca48403f04973632d28aa2c375531
+  [yast-storage-ng]=e99b22091c8a4c9b32a537d08a10f73a0beb0eec
+  [yast-control-center]=c7681beece00d38b8c5fc5ac6feb1da31fdc8283
+)
+
+# clone URL DIR -- shallow clone of the pinned commit (or the default branch with
+# YAST_UPSTREAM_UNPINNED=1). An existing DIR is reused as is; a warning is printed
+# when it is not at the pinned commit.
+clone() {
+  local url="$1" dir="$2" pin="${PIN[$2]:-}" head
+  [[ -n "${YAST_UPSTREAM_UNPINNED:-}" ]] && pin=""
+  if [[ -d "$dir" ]]; then
+    if [[ -n "$pin" ]]; then
+      head="$(git -C "$dir" rev-parse HEAD 2>/dev/null || echo unknown)"
+      [[ "$head" == "$pin" ]] || warn "$dir: existing clone is at ${head:0:12}, pinned commit is ${pin:0:12}; leaving it as is (delete $ROOT/$dir to re-clone)"
+    fi
+    return 0
+  fi
+  if [[ -z "$pin" ]]; then
+    git clone --quiet --depth=1 "$url" "$dir"
+    return
+  fi
+  git init --quiet "$dir"
+  git -C "$dir" remote add origin "$url"
+  # GitHub serves any commit by full SHA; fall back to a full fetch otherwise
+  git -C "$dir" fetch --quiet --depth=1 origin "$pin" 2>/dev/null \
+    || git -C "$dir" fetch --quiet origin \
+    || die "cannot fetch $url (delete $ROOT/$dir and retry)"
+  git -C "$dir" -c advice.detachedHead=false checkout --quiet "$pin" \
+    || die "$url: pinned commit $pin not found (delete $ROOT/$dir; YAST_UPSTREAM_UNPINNED=1 uses the current branch)"
+}
+
+# apply_patch DIR PATCH [STRIP] -- apply PATCH inside DIR. Already applied = skipped
+# (re-runs are safe); does not apply = stop with an error, unless
+# YAST_IGNORE_PATCH_FAILURES=1.
+apply_patch() {
+  local dir="$1" pf="$2" strip="${3:-1}" name
+  name="$(basename "$pf")"
+  if ( cd "$dir" && patch -s -f -R -p"$strip" --dry-run < "$pf" ) >/dev/null 2>&1; then
+    echo "  patch $name: already applied"
+    return 0
+  fi
+  if ( cd "$dir" && patch -s -f -N -p"$strip" --dry-run < "$pf" ) >/dev/null 2>&1; then
+    ( cd "$dir" && patch -s -f -N -p"$strip" < "$pf" ) && echo "  patch $name: applied"
+    return
+  fi
+  if [[ -n "${YAST_IGNORE_PATCH_FAILURES:-}" ]]; then
+    warn "patch $name does NOT apply in $dir -- continuing without it (YAST_IGNORE_PATCH_FAILURES is set); that component may misbehave"
+    return 0
+  fi
+  die "patch $name does not apply in $dir.
+       Upstream probably changed the patched file (is the clone at its pinned commit?).
+       See: (cd $dir && patch -p$strip --dry-run < $pf)
+       To continue without this patch anyway: YAST_IGNORE_PATCH_FAILURES=1 $0"
+}
 
 if [[ "${1:-}" == "--deps" ]]; then
   echo "pacman: ${PACMAN_DEPS[*]}"; echo "gems:   ${GEM_DEPS[*]}"; exit 0
@@ -42,7 +147,7 @@ mkdir -p "$ROOT" "$PREFIX"
 cd "$ROOT"
 # Arch uses lib/; YastCommon.cmake hardcodes lib64 on 64-bit. Mirror Arch's own
 # /usr/lib64 -> lib symlink inside the prefix instead of patching cmake.
-[[ -L "$PREFIX/lib64" ]] || { rm -rf "$PREFIX/lib64"; ln -s lib "$PREFIX/lib64"; }
+[[ -L "$PREFIX/lib64" ]] || { rm -rf "${PREFIX:?}/lib64"; ln -s lib "$PREFIX/lib64"; }
 
 # FIX 1: Arch has no /usr/include/ncursesw/. Its headers live in /usr/include and
 # are already wide-char. libyui-ncurses hardcodes <ncursesw/...>, so build a shim.
@@ -52,8 +157,6 @@ for h in curses.h ncurses.h panel.h term.h unctrl.h \
          etip.h eti.h cursesw.h cursesp.h cursesf.h cursesm.h cursesapp.h cursslk.h; do
   [[ -f /usr/include/$h ]] && ln -sf "/usr/include/$h" "$ROOT/compat/ncursesw/$h"
 done
-
-clone() { [[ -d "$2" ]] || git clone --quiet --depth=1 "$1" "$2"; }
 
 export CC=gcc CXX=g++      # many Arch setups export CC=aocc-clang; force GCC
 export PKG_CONFIG_PATH="$PREFIX/share/pkgconfig:$PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
@@ -81,11 +184,9 @@ done
 # ------------------------------------------------------------- yast-devtools
 say "Building yast-devtools (patched: docbook path, drop rpm macros)"
 clone https://github.com/yast/yast-devtools.git yast-devtools
+apply_patch yast-devtools "$HERE/patches/01-devtools-docbook-arch-path.patch"
+apply_patch yast-devtools "$HERE/patches/02-devtools-drop-rpm-macros.patch"
 ( cd yast-devtools
-  git apply --check "$HERE/patches/01-devtools-docbook-arch-path.patch" 2>/dev/null \
-    && git apply "$HERE/patches/01-devtools-docbook-arch-path.patch" || true
-  git apply --check "$HERE/patches/02-devtools-drop-rpm-macros.patch" 2>/dev/null \
-    && git apply "$HERE/patches/02-devtools-drop-rpm-macros.patch" || true
   ./build-tools/scripts/y2autoconf --bootstrap ./build-tools/
   ./build-tools/scripts/y2automake --bootstrap ./build-tools/
   rm -f acinclude.m4; cat ./build-tools/aclocal/*.m4 > acinclude.m4
@@ -117,9 +218,8 @@ clone https://github.com/yast/yast-ycp-ui-bindings.git yast-ycp-ui-bindings
 
 say "Building yast-ruby-bindings (patched for Ruby >= 3.4)"
 clone https://github.com/yast/yast-ruby-bindings.git yast-ruby-bindings
+apply_patch yast-ruby-bindings "$HERE/patches/03-ruby34-full-vm-init.patch"
 ( cd yast-ruby-bindings
-  git apply --check "$HERE/patches/03-ruby34-full-vm-init.patch" 2>/dev/null \
-    && git apply "$HERE/patches/03-ruby34-full-vm-init.patch" || true
   rm -rf build
   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_MODULE_PATH="$PREFIX/share/cmake/Modules" -DLIB=lib
@@ -164,9 +264,9 @@ declare -A REPO_PATCHES=(
   [yast-nis-client]="19-nis-ypbind-arch-confd"
 )
 for m in $MODULES; do
-  clone "https://github.com/yast/$m.git" "$m" || continue
+  clone "https://github.com/yast/$m.git" "$m"
   for pf in ${REPO_PATCHES[$m]:-}; do
-    ( cd "$m" && patch -s -N -p1 -r - < "$HERE/patches/$pf.patch" ) || true
+    apply_patch "$m" "$HERE/patches/$pf.patch"
   done
   ( cd "$m" && rake install DESTDIR="$PREFIX/destdir" >/dev/null 2>&1 ) \
     && echo "  ok   $m" || echo "  FAIL $m"
@@ -174,13 +274,9 @@ done
 
 # FIX: menu.rb shells out to /sbin/yast2, which does not exist on Arch. Point it
 # at our y2base instead, reusing whichever UI the Control Center was started with.
-MENU="$PREFIX/destdir/usr/share/YaST2/clients/menu.rb"
-if [[ -f $MENU ]] && ! grep -q YAST_Y2BASE "$MENU"; then
-  ( cd "$PREFIX/destdir/usr/share/YaST2/clients" \
-    && patch -s -p0 < "$HERE/patches/05-menu-launch-via-y2base.patch" ) 2>/dev/null \
-  || sed -i "s|/sbin/yast2 %1 %2|$PREFIX/lib/YaST2/bin/y2base %1 qt %2|; \
-             s|/sbin/yast %1 %2|$PREFIX/lib/YaST2/bin/y2base %1 ncurses %2|" "$MENU"
-fi
+# (Patch paths are relative to destdir: usr/share/YaST2/clients/menu.rb.)
+[[ -f "$PREFIX/destdir/usr/share/YaST2/clients/menu.rb" ]] \
+  && apply_patch "$PREFIX/destdir" "$HERE/patches/05-menu-launch-via-y2base.patch"
 
 # ------------------------------------------------------------- libstorage-ng
 # Storage layer for Bootloader, NFS, Security. Patch 08: honour --prefix in the
@@ -191,7 +287,7 @@ say "Building libstorage-ng (+ Ruby bindings) and installing yast-storage-ng"
 RB="$PREFIX/destdir/usr/lib/ruby/vendor_ruby/$(ruby -e 'puts RbConfig::CONFIG["ruby_version"]')/$(ruby -e 'puts RbConfig::CONFIG["arch"]')"
 clone https://github.com/openSUSE/libstorage-ng.git libstorage-ng
 ( cd libstorage-ng
-  grep -q 'datadir)/libstorage' data/Makefile.am || patch -s -p1 < "$HERE/patches/08-libstorage-ng-honour-prefix.patch"
+  apply_patch . "$HERE/patches/08-libstorage-ng-honour-prefix.patch"
   libtoolize -q && aclocal && autoconf && autoheader && automake --add-missing --foreign >/dev/null 2>&1
   utils/git2log --version VERSION
   ./configure --prefix="$PREFIX" --libdir="$PREFIX/lib" >/dev/null
@@ -230,9 +326,7 @@ for f in "$HERE"/arch/applications/*.desktop; do install -Dm644 "$f" "$PREFIX/de
 
 
 # FIX: the Ruby layer hardcodes /usr for desktop files/data; follow Y2DIR instead.
-if ! grep -q 'ARCH PORT' "$Y2/modules/Directory.rb"; then
-  ( cd "$PREFIX/destdir" && patch -s -p1 < "$HERE/patches/06-directory-prefix-paths.patch" )
-fi
+apply_patch "$PREFIX/destdir" "$HERE/patches/06-directory-prefix-paths.patch"
 
 # SCR agents are declarative: retarget the desktop-file paths at our prefix.
 D="$PREFIX/destdir/usr/share/applications/YaST2"
@@ -280,9 +374,9 @@ install -Dm644 "$HERE/gtkconf/gtk-3.0/settings.ini" "$PREFIX/gtkconf/gtk-4.0/set
 say "Building yast-control-center (Qt)"
 clone https://github.com/yast/yast-control-center.git yast-control-center
 ( cd yast-control-center
-  grep -q YAST_LAUNCHER src/main_window.cpp || patch -s -p1 < "$HERE/patches/07-control-center-launcher-and-prefix.patch"
-  grep -q "Cache: the categorized view" src/yqdesktopfilesmodel.cpp || patch -s -p1 < "$HERE/patches/20-control-center-search-perf.patch"
-  grep -q "class GroupFilterProxyModel" src/main_window.cpp || patch -s -p1 < "$HERE/patches/21-control-center-search-group-sidebar.patch"
+  apply_patch . "$HERE/patches/07-control-center-launcher-and-prefix.patch"
+  apply_patch . "$HERE/patches/20-control-center-search-perf.patch"
+  apply_patch . "$HERE/patches/21-control-center-search-group-sidebar.patch"
   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX/destdir/usr" \
     -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_MODULE_PATH="$PREFIX/share/cmake/Modules" -DVERSION=4.7.0 >/dev/null
   cmake --build build -j"$(nproc)" >/dev/null && cmake --install build >/dev/null )
