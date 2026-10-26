@@ -9,6 +9,12 @@ looks as before. The choice is made in the "Section colours" box under the
 search field and saved to ~/.config/yast-on-arch/section-colors.ini, where
 colours can also be changed. A new genre gets the hue furthest from every
 colour in use, saved to that file. A renamed section keeps its colour.
+Each "More - System - <category>" section has a colour of its own: the
+ones that match a family use it (Networking -> Network, Security & Accounts
+-> Security, Hardware & Drivers -> Hardware, Gaming Helpers -> Games, System
+Info & Monitors -> Information, Other -> Utilities), the others have
+hand-picked colours. An [Aliases] section in the same file (Group name=
+Family) puts any group, these included, into another family.
 
 Layout: ~/.local/share/yast-on-arch/layout.ini ([Moves] file.desktop=GROUP,
 [Names] GROUP=Name) shows an entry in another section or a section under
@@ -966,10 +972,10 @@ index 19512a9..81e1a1d 100644
  
 diff --git c/src/sectioncolors.cpp i/src/sectioncolors.cpp
 new file mode 100644
-index 0000000..cccc87f
+index 0000000..1037a2f
 --- /dev/null
 +++ i/src/sectioncolors.cpp
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,266 @@
 +/****************************************************************************
 +|
 +| Copyright (c) 2026 yast-on-arch contributors
@@ -995,7 +1001,12 @@ index 0000000..cccc87f
 + *                           ; "Section colours" box under the search field)
 + *
 + *   [Colors]
-+ *   Graphics=#e05c8a        ; override a family (or a full group name)
++ *   Graphics=#e05c8a        ; override a family (or a full group name,
++ *                           ; e.g. "More - System - Containers=#2e86c1")
++ *
++ *   [Aliases]
++ *   My Tools=Development    ; a group (full name) uses that family's colour;
++ *                           ; also works for "More - System - <category>"
 + *
 + * Families without an entry in the built-in table get a stable colour
 + * derived from their name.
@@ -1020,6 +1031,7 @@ index 0000000..cccc87f
 +        SectionColorMode mode = SectionColorsHeaders;
 +        QHash<QString, QColor> colors;     // family or group name -> colour
 +        QHash<QString, QString> aliases;   // group name -> family
++        QHash<QString, QString> categoryFamily;   // "More - System - <category>" -> family
 +
 +        SectionColors()
 +        {
@@ -1062,6 +1074,36 @@ index 0000000..cccc87f
 +                { "Miscellaneous",           "Other" },
 +            };
 +
++            // system categories that belong to an existing family
++            categoryFamily = {
++                { "Networking",          "Network" },
++                { "Security & Accounts", "Security" },
++                { "Hardware & Drivers",  "Hardware" },
++                { "Gaming Helpers",      "Games" },
++                { "Other",               "Utilities" },
++                { "System Info & Monitors", "Information" },
++            };
++
++            // the other system categories: hand-picked so they stay easy to tell apart
++            const QHash<QString, QColor> systemColors = {
++                { "AI & LLM",                QColor( "#b07cff" ) },
++                { "Archives & Compression",  QColor( "#c49a6c" ) },
++                { "Backup & Snapshots",      QColor( "#4fb3d9" ) },
++                { "Containers",              QColor( "#2e86c1" ) },
++                { "Disks & Partitions",      QColor( "#f39c12" ) },
++                { "Distro Tools",            QColor( "#1abc9c" ) },
++                { "Files & File Managers",   QColor( "#f1c40f" ) },
++                { "Packages & App Stores",   QColor( "#ff6f61" ) },
++                { "Peripherals & RGB",       QColor( "#ff4fd8" ) },
++                { "Processes & Diagnostics", QColor( "#a3e048" ) },
++                { "Search & Launchers",      QColor( "#00bcd4" ) },
++                { "Terminals & Shell",       QColor( "#7dcea0" ) },
++                { "Text & Notes",            QColor( "#e8a0bf" ) },
++                { "Theming & Desktop",       QColor( "#ffb3a7" ) },
++            };
++            for ( auto it = systemColors.cbegin(); it != systemColors.cend(); ++it )
++                colors.insert( "System: " + it.key(), it.value() );
++
 +            QSettings ini( iniPath(), QSettings::IniFormat );
 +            const QString m = ini.value( "Mode", "headers" ).toString().toLower();
 +            if ( m == "off" )
@@ -1075,6 +1117,16 @@ index 0000000..cccc87f
 +                QColor c( ini.value( key ).toString() );
 +                if ( c.isValid() )
 +                    colors.insert( key, c );
++            }
++            ini.endGroup();
++
++            // [Aliases] Group name=Family, added to (or replacing) the built-in ones
++            ini.beginGroup( "Aliases" );
++            for ( const QString &key : ini.childKeys() )
++            {
++                const QString f = ini.value( key ).toString().trimmed();
++                if ( !f.isEmpty() )
++                    aliases.insert( key, f );
 +            }
 +            ini.endGroup();
 +        }
@@ -1120,12 +1172,19 @@ index 0000000..cccc87f
 +
 +            QString f = name.section( " - ", 0, 0 ).trimmed();
 +
-+            // "More - Graphics" -> Graphics, "More - System - Networking" -> Utilities
++            // "More - Graphics" -> Graphics; "More - System - Networking" -> each
++            // system category gets a colour of its own (matching families where
++            // one fits, e.g. Networking -> Network, otherwise its own new colour)
 +            if ( f == "More" )
 +            {
 +                QString sub = name.section( " - ", 1, 1 ).trimmed();
 +                if ( sub == "System" )
-+                    return "Utilities";
++                {
++                    QString cat = name.section( " - ", 2 ).trimmed();
++                    if ( cat.isEmpty() )
++                        return "Utilities";
++                    return categoryFamily.value( cat, "System: " + cat );
++                }
 +                if ( sub == "Emulators" || sub == "Benchmarks" || sub == "Settings" )
 +                    return sub;
 +                return colors.contains( sub ) ? sub : f;
@@ -1185,10 +1244,10 @@ index 0000000..cccc87f
 +}
 diff --git c/src/sectioncolors.h i/src/sectioncolors.h
 new file mode 100644
-index 0000000..f5bcd83
+index 0000000..ad815e5
 --- /dev/null
 +++ i/src/sectioncolors.h
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,48 @@
 +/****************************************************************************
 +|
 +| Copyright (c) 2026 yast-on-arch contributors
@@ -1211,7 +1270,8 @@ index 0000000..f5bcd83
 + * " - ", e.g. "Graphics - Vector" -> Graphics), so related sections share
 + * one colour. The "Section colours" box in the sidebar switches between
 + * Off, Headers and Whole block; colours can be changed in
-+ * ~/.config/yast-on-arch/section-colors.ini (see sectioncolors.cpp).
++ * ~/.config/yast-on-arch/section-colors.ini, where [Aliases] can also put a
++ * group into another family (see sectioncolors.cpp).
 + */
 +
 +#ifndef SECTIONCOLORS_H

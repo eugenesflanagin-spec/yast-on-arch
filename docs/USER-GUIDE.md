@@ -1,7 +1,7 @@
 # yast-on-arch — User Guide
 
 openSUSE's YaST system-configuration tool, built and running on Arch Linux.
-This guide describes version **0.3.0** (`~/libyui-port/yast --version`; changes are listed in
+This guide describes version **0.3.1** (`~/libyui-port/yast --version`; changes are listed in
 [CHANGELOG.md](../CHANGELOG.md)).
 
 This guide is for anyone installing yast-on-arch, from people who remember YaST from SuSE and
@@ -200,7 +200,34 @@ Mode=blocks          ; off, headers or blocks
 [Colors]
 Graphics=#e05c8a     ; a genre (the part of a section name before " - ")
 My Tools=#40a0ff     ; or one section by its full name
+
+[Aliases]
+My Scripts=Development                 ; this section takes the Development colour
+More - System - Containers=Games       ; works for any section, by its full name
 ```
+
+If you have sections called "More - System - *category*" (for example ones you added yourself),
+each gets a colour of its own instead of all sharing one. Where a category matches a genre it
+uses that genre's colour: Networking -> Network, Security & Accounts -> Security, Hardware &
+Drivers -> Hardware, Gaming Helpers -> Games, System Info & Monitors -> Information, Other ->
+Utilities. The rest (AI & LLM, Containers, Disks & Partitions, Terminals & Shell, …) have
+hand-picked colours that are easy to tell apart, and a category the Control Center doesn't know
+gets a new colour as described below.
+
+Two ways to change a section's colour:
+
+- **`[Colors]`**: give the section's full name a colour, e.g.
+  `More - System - Containers=#2e86c1`. A full name always wins over its genre.
+- **`[Aliases]`**: put the section into another genre, e.g. `My Scripts=Development`. It then
+  follows that genre's colour, also when you change the genre's colour later. Your aliases are
+  added to the built-in ones (such as Virtualization -> Emulators) and replace a built-in one with
+  the same name.
+  The genre name must match exactly, including capitals. If the Control Center already saved a
+  colour for that section under `[Colors]`, delete that line first: a full name always wins.
+- Colours the Control Center picks by itself for a new system category are saved as
+  `System: <category>` (for example `System: Containers`).
+
+Restart the Control Center after editing the file by hand.
 
 ![The Control Center with Section colours set to Whole block](images/section-colours-whole-block.png)
 
@@ -559,7 +586,7 @@ falls back to `$YAST_ARCH_ROOT`.
 | `~/.local/share/applications/yast-*.desktop` | unless `YAST_NO_MENU_ENTRIES` is set | menu entries |
 | `~/.local/share/yast-on-arch/applications/` | only when you use `yast add-app` | your own Control Center entries (section 5) |
 | `~/.local/share/yast-on-arch/layout.ini` | only when you move a program or rename a section | your layout (section 5) |
-| `~/.config/yast-on-arch/section-colors.ini` | when you change *Section colours* or add a genre | colour mode and colours (section 4) |
+| `~/.config/yast-on-arch/section-colors.ini` | when you change *Section colours* or add a genre | colour mode, colours and aliases (section 4) |
 | `/var/log/YaST2/` | you create it | root log folder |
 | user gems in `~/.local/share/gem/` | always | YaST's Ruby dependencies |
 
@@ -659,7 +686,7 @@ That is real system configuration and it doesn't depend on YaST.
 | 19 | yast-nis-client | ypbind settings in `/etc/conf.d/ypbind` (+ the systemd drop-in) |
 | 20 | yast2-control-center | search no longer freezes with thousands of modules |
 | 21 | yast2-control-center | group sidebar narrows to groups with matching modules while searching |
-| 22 | yast2-control-center | section colours (Off / Headers / Whole block); "Add or change..." window; moved programs and renamed sections from `layout.ini` |
+| 22 | yast2-control-center | section colours (Off / Headers / Whole block; a colour per "More - System" category; `[Colors]` and `[Aliases]` in `section-colors.ini`); "Add or change..." window; moved programs and renamed sections from `layout.ini` |
 
 Plus the Arch stand-ins in `arch/`: `Pkg` (pacman-backed queries, no transactions), no-op
 `InstURL`/`Packages`/`SLPAPI`/`PackageSlideShow`, `cfa/grub2` copies for `/boot/grub`, a Perl
@@ -740,6 +767,9 @@ writing a libalpm backend for libzypp's interface. Octopi fills the gap.
 - **Octopi** — Alexandre Albuquerque Arnt and contributors (optional, separate project).
 - **yast-on-arch** — build script, patches and Arch stand-ins by Eugene Flanagin. GPL-2.0,
   matching upstream; the patches are derivative of GPL-2.0 code.
+
+yast-on-arch changes are Copyright (C) 2026 by Eugene Flanagin. Licensed under the GNU General
+Public License v2.0 (GPL-2.0), like YaST itself.
 
 SUSE, openSUSE and YaST are trademarks of SUSE LLC. Arch Linux is a trademark of the Arch
 Linux project. KDE and Plasma are trademarks of KDE e.V. This project is not affiliated with,

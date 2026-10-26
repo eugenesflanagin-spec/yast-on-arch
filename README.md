@@ -52,7 +52,9 @@ cd yast-on-arch && ./bootstrap.sh
 
 Or do it all from the Control Center: the **Add or change...** button under the search field
 adds programs and sections, moves programs and renames sections. The **Section colours** box
-next to it colour-codes the sections: Off, Headers, or Whole block.
+next to it colour-codes the sections: Off, Headers, or Whole block. Colours, and which genre a
+section belongs to, can be changed in `~/.config/yast-on-arch/section-colors.ini`
+([User Guide section 4](docs/USER-GUIDE.md#the-control-center)).
 
 No root needed; your entries and layout survive rebuilds. Details, and the manual way (a `.desktop` file
 in `arch/applications/` or a section in `arch/applications/groups/`), are in
@@ -183,6 +185,9 @@ This is probably the single most reusable thing here — it would affect any dis
 ## Licence
 
 GPL-2.0, matching upstream YaST and libyui. The patches here are derivative of GPL-2.0 code.
+
+yast-on-arch changes are Copyright (C) 2026 by Eugene Flanagin. Licensed under the GNU General
+Public License v2.0 (GPL-2.0), like YaST itself.
 
 ## Control Center (2026-09-06)
 

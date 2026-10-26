@@ -2,6 +2,25 @@
 
 All notable changes to yast-on-arch. Versions follow [semantic versioning](https://semver.org/).
 
+## 0.3.1 — 2026-10-26
+
+### Changed
+
+- **Each "More - System - …" section has a colour of its own** in the Control Center, instead of
+  all of them sharing the Utilities grey. Categories that match a genre use its colour
+  (Networking → Network, Security & Accounts → Security, Hardware & Drivers → Hardware, Gaming
+  Helpers → Games, System Info & Monitors → Information, Other → Utilities); the other 14 have
+  hand-picked colours that are easy to tell apart.
+
+### New
+
+- **`[Aliases]` in `~/.config/yast-on-arch/section-colors.ini`**: `Section name=Genre` puts any
+  section into another genre's colour, added to the built-in aliases or replacing one. Before,
+  which section belonged to which genre was fixed in the program. A single section can still be
+  given its own colour with its full name under `[Colors]`. See the User Guide, section 4.
+
+yast-on-arch changes are Copyright (C) 2026 by Eugene Flanagin. Licensed under the GNU General Public License v2.0 (GPL-2.0), like YaST itself.
+
 ## 0.3.0 — 2026-10-26
 
 ### New
