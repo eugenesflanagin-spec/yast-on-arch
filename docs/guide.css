@@ -1,0 +1,14 @@
+/* Print style for the User Guide PDF (docs/build-pdf.sh) */
+@page { size: A4; margin: 18mm 16mm; @bottom-center { content: "yast-on-arch User Guide  ·  " counter(page); font: 8pt sans-serif; color: #666; } }
+body  { font: 10pt/1.45 "Noto Sans", "DejaVu Sans", sans-serif; color: #111; }
+h1    { font-size: 22pt; color: #1b5e9f; border-bottom: 2px solid #1b5e9f; padding-bottom: 4pt; }
+h2    { font-size: 16pt; color: #1b5e9f; margin-top: 18pt; break-before: page; }
+h3    { font-size: 12.5pt; color: #2c3e50; margin-top: 12pt; }
+code  { font: 8.8pt "Noto Sans Mono", "DejaVu Sans Mono", monospace; background: #f2f4f7; padding: 0 2pt; }
+pre   { background: #f2f4f7; border-left: 3px solid #1b5e9f; padding: 6pt 8pt; white-space: pre-wrap; break-inside: avoid; }
+pre code { background: none; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 6pt 0; font-size: 9pt; }
+th, td { border: 1px solid #c8ced6; padding: 3pt 5pt; vertical-align: top; }
+th    { background: #e6edf5; }
+blockquote { border-left: 3px solid #e0803a; margin: 6pt 0; padding: 2pt 10pt; background: #fdf6ef; }
+a     { color: #1b5e9f; text-decoration: none; }

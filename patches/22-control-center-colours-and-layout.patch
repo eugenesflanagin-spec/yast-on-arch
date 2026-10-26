@@ -1,0 +1,1347 @@
+Control Center: colour-coded sections, and adding, moving and renaming
+entries and sections from the Control Center itself.
+
+Section colours: each group gets a colour from its family (the part of its
+name before " - ", e.g. "Graphics - Vector" -> Graphics). "Headers" colours
+the section headers and adds a matching stripe to each sidebar group; "Whole
+block" also tints each section from its header down to the next one; "Off"
+looks as before. The choice is made in the "Section colours" box under the
+search field and saved to ~/.config/yast-on-arch/section-colors.ini, where
+colours can also be changed. A new genre gets the hue furthest from every
+colour in use, saved to that file. A renamed section keeps its colour.
+
+Layout: ~/.local/share/yast-on-arch/layout.ini ([Moves] file.desktop=GROUP,
+[Names] GROUP=Name) shows an entry in another section or a section under
+another name, without changing the installed .desktop files. An entry moved
+into a section that no longer exists is shown in its own section again.
+
+"Add or change..." button (and right-click on a program -> "Move to another
+section..."): a dialog to add a program, add a section, move a program and
+rename a section. It runs the same "yast add-app / add-section / move-app /
+rename-section" commands as the terminal (through $YAST_LAUNCHER) and
+restarts the Control Center to show the change.
+
+Applies on top of patches 07, 20 and 21.
+
+diff --git c/src/CMakeLists.txt i/src/CMakeLists.txt
+index d299b96..a9b2492 100644
+--- c/src/CMakeLists.txt
++++ i/src/CMakeLists.txt
+@@ -24,6 +24,9 @@ SET(yast2-control-center_SRCS
+     yqmodulesmodel.cpp
+     yqmodulesproxymodel.cpp
+     yqsavelogs.cpp
++    sectioncolors.cpp
++    layoutoverlay.cpp
++    layoutdialog.cpp
+     i18n.cpp
+ )
+ 
+@@ -45,6 +48,9 @@ SET(yast2-control-center_HDRS
+     yqmodulesproxymodel.h
+     listview.h
+     yqsavelogs.h
++    sectioncolors.h
++    layoutoverlay.h
++    layoutdialog.h
+     i18n.h
+ )
+ 
+@@ -68,7 +74,8 @@ SET(MODELS_TEST_SRCS
+   yqdesktopfilesmodel.cpp
+   yqmodulegroupsmodel.cpp
+   yccmoduleinfoprovider.cpp
+-  yqmodulesmodel.cpp )
++  yqmodulesmodel.cpp
++  layoutoverlay.cpp )
+ 
+ 
+ ADD_EXECUTABLE(models_test ${MODELS_TEST_SRCS})
+diff --git c/src/kcategorizedview.cpp i/src/kcategorizedview.cpp
+index 1db7d80..fa9a21d 100644
+--- c/src/kcategorizedview.cpp
++++ i/src/kcategorizedview.cpp
+@@ -31,6 +31,7 @@
+ 
+ 
+ #include "kcategorydrawer.h"
++#include "sectioncolors.h"
+ #include "kcategorizedsortfilterproxymodel.h"
+ 
+ // By defining DOLPHIN_DRAGANDDROP the custom drag and drop implementation of
+@@ -773,6 +774,36 @@ void KCategorizedView::paintEvent(QPaintEvent *event)
+ 
+     painter.save();
+ 
++    // ARCH PORT: "Whole block" section colours -- tint each section from its
++    // header down to the next header, behind the items (sectioncolors.cpp).
++    if (sectionColorMode() == SectionColorsBlocks)
++    {
++        for (int i = 0; i < d->categories.count(); ++i)
++        {
++            const QString &category = d->categories[i];
++            const QColor accent = sectionColor(category);
++            if (!accent.isValid() || d->categoriesIndexes[category].isEmpty())
++                continue;
++
++            QRect block = d->categoryVisualRect(category);
++            int bottom = (i + 1 < d->categories.count())
++                ? d->categoryVisualRect(d->categories[i + 1]).top() - 1
++                : visualRect(d->proxyModel->index(d->categoriesIndexes[category].last().row(),
++                                                  d->proxyModel->sortColumn())).bottom();
++            block.setLeft(0);
++            block.setRight(viewport()->width() - 1);
++            block.setBottom(bottom);
++
++            if (!block.intersects(area))
++                continue;
++
++            QColor tint(accent);
++            tint.setAlpha(28);
++            painter.fillRect(block, tint);
++            painter.fillRect(QRect(block.left(), block.top(), 4, block.height()), accent);
++        }
++    }
++
+     QModelIndexList dirtyIndexes = d->intersectionSet(area);
+     bool alternate = false;
+     if (dirtyIndexes.count())
+diff --git c/src/kcategorydrawer.cpp i/src/kcategorydrawer.cpp
+index 9d63ceb..42f595c 100644
+--- c/src/kcategorydrawer.cpp
++++ i/src/kcategorydrawer.cpp
+@@ -19,6 +19,7 @@
+   */
+ 
+ #include "kcategorydrawer.h"
++#include "sectioncolors.h"
+ 
+ #include <QPainter>
+ #include <QStyleOption>
+@@ -58,6 +59,20 @@ void KCategoryDrawer::drawCategory(const QModelIndex &index,
+         color = option.palette.color(QPalette::Text);
+     }
+ 
++    // ARCH PORT: colour-coded sections (sectioncolors.cpp)
++    const QColor accent = sectionColor(category);
++    if (accent.isValid())
++    {
++        if (!(option.state & QStyle::State_Selected))
++        {
++            QColor tint(accent);
++            tint.setAlpha(40);
++            painter->fillRect(option.rect, linearG(option, tint));
++            color = accent;
++        }
++        painter->fillRect(QRect(option.rect.left(), option.rect.top(), 4, option.rect.height()), accent);
++    }
++
+ 
+     QStyleOptionViewItemV4 viewOptions;
+     viewOptions.rect = option.rect;
+@@ -80,14 +95,19 @@ void KCategoryDrawer::drawCategory(const QModelIndex &index,
+ 
+ 
+     painter->fillRect(lineRect, linearG( option, color ));
++    if (accent.isValid())
++    {
++        lineRect.adjust(0, -1, 0, 0);
++        painter->fillRect(lineRect, linearG( option, accent ));
++    }
+ 
+     painter->setPen(color);
+ 
+     QRect textRect(option.rect);
+-    textRect.setLeft(textRect.left() + HORIZONTAL_HINT);
++    textRect.setLeft(textRect.left() + HORIZONTAL_HINT + (accent.isValid() ? 6 : 0));
+     textRect.setRight(textRect.right() - HORIZONTAL_HINT);
+     painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
+-    metrics.elidedText(category, Qt::ElideRight, option.rect.width()));
++    metrics.elidedText(category, Qt::ElideRight, textRect.width()));
+ 
+     painter->restore();
+ }
+diff --git c/src/layoutdialog.cpp i/src/layoutdialog.cpp
+new file mode 100644
+index 0000000..b852eb5
+--- /dev/null
++++ i/src/layoutdialog.cpp
+@@ -0,0 +1,364 @@
++/****************************************************************************
++|
++| Copyright (c) 2026 yast-on-arch contributors
++|
++| This program is free software; you can redistribute it and/or
++| modify it under the terms of version 2 of the GNU General Public License as
++| published by the Free Software Foundation.
++|
++| This program is distributed in the hope that it will be useful,
++| but WITHOUT ANY WARRANTY; without even the implied warranty of
++| MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.   See the
++| GNU General Public License for more details.
++|
++ \***************************************************************************/
++
++/*
++ * ARCH PORT: "Add or change..." dialog, see layoutdialog.h.
++ */
++
++#include "layoutdialog.h"
++#include "i18n.h"
++
++#include <QCheckBox>
++#include <QComboBox>
++#include <QDialogButtonBox>
++#include <QFileDialog>
++#include <QFormLayout>
++#include <QHBoxLayout>
++#include <QLabel>
++#include <QLineEdit>
++#include <QProcess>
++#include <QPushButton>
++#include <QSet>
++#include <QTabWidget>
++#include <QVBoxLayout>
++
++namespace
++{
++    // a line edit with a "Browse..." button next to it
++    QWidget *withBrowse( QLineEdit *edit, QWidget *parent, const QString &title, const QString &filter )
++    {
++        QWidget *w = new QWidget( parent );
++        QHBoxLayout *l = new QHBoxLayout( w );
++        l->setContentsMargins( 0, 0, 0, 0 );
++        QPushButton *b = new QPushButton( _("Browse...") );
++        l->addWidget( edit, 1 );
++        l->addWidget( b );
++
++        QObject::connect( b, &QPushButton::clicked, w, [=]()
++        {
++            const QString f = QFileDialog::getOpenFileName( w, title, edit->text(), filter );
++            if ( !f.isEmpty() )
++                edit->setText( f );
++        } );
++
++        return w;
++    }
++
++    QLabel *hint( const QString &text )
++    {
++        QLabel *l = new QLabel( text );
++        l->setWordWrap( true );
++        QFont f = l->font();
++        f.setItalic( true );
++        l->setFont( f );
++        return l;
++    }
++}
++
++LayoutDialog::LayoutDialog( const QList<LayoutSection> &sections, const QList<LayoutEntry> &entries,
++                            QWidget *parent )
++    : QDialog( parent ), m_sections( sections ), m_entries( entries )
++{
++    setWindowTitle( _("Add or change") );
++
++    QVBoxLayout *top = new QVBoxLayout( this );
++    m_tabs = new QTabWidget( this );
++    top->addWidget( m_tabs );
++
++    // ---- Add a program
++    {
++        QWidget *page = new QWidget();
++        QFormLayout *f = new QFormLayout( page );
++        m_appName = new QLineEdit();
++        m_appExec = new QLineEdit();
++        m_appIcon = new QLineEdit();
++        m_appComment = new QLineEdit();
++        m_appKeywords = new QLineEdit();
++        m_appSection = new QComboBox();
++        m_appTerminal = new QCheckBox( _("Run it in a terminal window that stays open") );
++        m_appExec->setPlaceholderText( _("program and its options, e.g.  htop") );
++        m_appIcon->setPlaceholderText( _("icon name (e.g. utilities-terminal) or an image file") );
++        m_appKeywords->setPlaceholderText( _("extra search words, separated by commas") );
++        fillSectionBox( m_appSection );
++
++        f->addRow( _("&Name:"), m_appName );
++        f->addRow( _("&Command:"), withBrowse( m_appExec, page, _("Choose a program"), QString() ) );
++        f->addRow( _("&Icon:"), withBrowse( m_appIcon, page, _("Choose an icon"),
++                                           _("Images (*.png *.svg *.svgz *.xpm *.jpg)") ) );
++        f->addRow( _("&Description:"), m_appComment );
++        f->addRow( _("&Keywords:"), m_appKeywords );
++        f->addRow( _("&Section:"), m_appSection );
++        f->addRow( QString(), m_appTerminal );
++
++        QPushButton *go = new QPushButton( _("&Add program") );
++        f->addRow( QString(), go );
++        connect( go, &QPushButton::clicked, this, &LayoutDialog::addApp );
++        m_tabs->addTab( page, _("Add a program") );
++    }
++
++    // ---- Add a section
++    {
++        QWidget *page = new QWidget();
++        QFormLayout *f = new QFormLayout( page );
++        m_secName = new QLineEdit();
++        m_secIcon = new QLineEdit();
++        m_secIcon->setPlaceholderText( _("icon name or an image file (default: folder)") );
++        m_secGenre = new QComboBox();
++        m_secGenre->setEditable( true );
++        m_secGenre->addItem( QString() );
++
++        // genres = the part before " - " of the existing section names
++        QSet<QString> genres;
++        for ( const LayoutSection &s : m_sections )
++            if ( s.name.contains( " - " ) )
++                genres.insert( s.name.section( " - ", 0, 0 ).trimmed() );
++        QStringList sorted = genres.values();
++        sorted.sort( Qt::CaseInsensitive );
++        m_secGenre->addItems( sorted );
++
++        f->addRow( _("&Name:"), m_secName );
++        f->addRow( _("&Genre:"), m_secGenre );
++        f->addRow( QString(), hint( _("Pick a genre to give the section that genre's colour "
++                                      "(it is called \"Genre - Name\"), type a new genre for a "
++                                      "colour of its own, or leave it empty.") ) );
++        f->addRow( _("&Icon:"), withBrowse( m_secIcon, page, _("Choose an icon"),
++                                           _("Images (*.png *.svg *.svgz *.xpm *.jpg)") ) );
++
++        QPushButton *go = new QPushButton( _("&Add section") );
++        f->addRow( QString(), go );
++        connect( go, &QPushButton::clicked, this, &LayoutDialog::addSection );
++        m_tabs->addTab( page, _("Add a section") );
++    }
++
++    // ---- Move a program
++    {
++        QWidget *page = new QWidget();
++        QFormLayout *f = new QFormLayout( page );
++        m_moveEntry = new QComboBox();
++        m_moveTo = new QComboBox();
++
++        QList<LayoutEntry> sorted = m_entries;
++        std::sort( sorted.begin(), sorted.end(), []( const LayoutEntry &a, const LayoutEntry &b )
++                   { return a.name.compare( b.name, Qt::CaseInsensitive ) < 0; } );
++        for ( const LayoutEntry &e : sorted )
++            m_moveEntry->addItem( e.name, e.file );
++        fillSectionBox( m_moveTo );
++
++        // preselect the section the chosen program is in now
++        auto follow = [this]()
++        {
++            const QString file = m_moveEntry->currentData().toString();
++            for ( const LayoutEntry &e : m_entries )
++                if ( e.file == file )
++                    m_moveTo->setCurrentIndex( qMax( 0, m_moveTo->findData( e.section ) ) );
++        };
++        connect( m_moveEntry, QOverload<int>::of( &QComboBox::currentIndexChanged ), this, follow );
++        follow();
++
++        f->addRow( _("&Program:"), m_moveEntry );
++        f->addRow( _("&To section:"), m_moveTo );
++        f->addRow( QString(), hint( _("Works for every program, also the ones that came with YaST. "
++                                      "The installed files are not changed, so \"Put back\" always "
++                                      "returns it to its own section.") ) );
++
++        QHBoxLayout *b = new QHBoxLayout();
++        QPushButton *go = new QPushButton( _("&Move") );
++        QPushButton *back = new QPushButton( _("&Put back") );
++        b->addWidget( go );
++        b->addWidget( back );
++        b->addStretch();
++        f->addRow( QString(), b );
++        connect( go, &QPushButton::clicked, this, [this]() { moveApp( false ); } );
++        connect( back, &QPushButton::clicked, this, [this]() { moveApp( true ); } );
++        m_tabs->addTab( page, _("Move a program") );
++    }
++
++    // ---- Rename a section
++    {
++        QWidget *page = new QWidget();
++        QFormLayout *f = new QFormLayout( page );
++        m_renSection = new QComboBox();
++        m_renName = new QLineEdit();
++        fillSectionBox( m_renSection );
++
++        auto follow = [this]() { m_renName->setText( m_renSection->currentText() ); };
++        connect( m_renSection, QOverload<int>::of( &QComboBox::currentIndexChanged ), this, follow );
++        follow();
++
++        f->addRow( _("&Section:"), m_renSection );
++        f->addRow( _("New &name:"), m_renName );
++        f->addRow( QString(), hint( _("The section keeps its colour. \"Original name\" gives it its "
++                                      "own name back.") ) );
++
++        QHBoxLayout *b = new QHBoxLayout();
++        QPushButton *go = new QPushButton( _("&Rename") );
++        QPushButton *back = new QPushButton( _("&Original name") );
++        b->addWidget( go );
++        b->addWidget( back );
++        b->addStretch();
++        f->addRow( QString(), b );
++        connect( go, &QPushButton::clicked, this, [this]() { renameSection( false ); } );
++        connect( back, &QPushButton::clicked, this, [this]() { renameSection( true ); } );
++        m_tabs->addTab( page, _("Rename a section") );
++    }
++
++    m_result = new QLabel();
++    m_result->setWordWrap( true );
++    m_result->setTextInteractionFlags( Qt::TextSelectableByMouse );
++    top->addWidget( m_result );
++
++    QDialogButtonBox *box = new QDialogButtonBox( QDialogButtonBox::Close );
++    connect( box, &QDialogButtonBox::rejected, this, &QDialog::reject );
++    top->addWidget( box );
++
++    resize( 620, 420 );
++}
++
++void LayoutDialog::showPage( Page page, const QString &entryFile )
++{
++    m_tabs->setCurrentIndex( page );
++
++    if ( page == MoveApp && !entryFile.isEmpty() )
++    {
++        const int i = m_moveEntry->findData( entryFile );
++        if ( i >= 0 )
++            m_moveEntry->setCurrentIndex( i );
++    }
++}
++
++void LayoutDialog::fillSectionBox( QComboBox *box )
++{
++    QList<LayoutSection> sorted = m_sections;
++    std::sort( sorted.begin(), sorted.end(), []( const LayoutSection &a, const LayoutSection &b )
++               { return a.name.compare( b.name, Qt::CaseInsensitive ) < 0; } );
++    for ( const LayoutSection &s : sorted )
++        box->addItem( s.name, s.id );
++}
++
++QString LayoutDialog::chosenSection( QComboBox *box ) const
++{
++    return box->currentData().toString();
++}
++
++bool LayoutDialog::run( const QStringList &args )
++{
++    // the launcher sets YAST_LAUNCHER; otherwise use "yast" from PATH
++    QString launcher = qEnvironmentVariable( "YAST_LAUNCHER" );
++    if ( launcher.isEmpty() )
++        launcher = "yast";
++
++    QProcess p;
++    // YAST_LOG_DIRECT: we read the output ourselves, so the launcher writes no log
++    // banner and does not hand stderr to a background "tee"
++    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
++    env.insert( "YAST_LOG_DIRECT", "1" );
++    p.setProcessEnvironment( env );
++    p.setProcessChannelMode( QProcess::SeparateChannels );
++    p.start( launcher, args );
++
++    if ( !p.waitForStarted( 10000 ) )
++    {
++        m_result->setText( _("Could not start %1.").arg( launcher ) );
++        return false;
++    }
++
++    if ( !p.waitForFinished( 120000 ) )
++    {
++        p.kill();
++        p.waitForFinished( 3000 );
++        m_result->setText( _("Not done: it took too long and was stopped.") );
++        return false;
++    }
++
++    // drop the launcher's log banner and the "yast: " prefix of each line
++    auto tidy = []( const QByteArray &raw )
++    {
++        QStringList lines;
++        for ( QString line : QString::fromLocal8Bit( raw ).split( '\n' ) )
++        {
++            if ( line.startsWith( "--- " ) && line.contains( " launch: " ) )
++                continue;
++            if ( line.startsWith( "yast: " ) )
++                line.remove( 0, 6 );
++            if ( !line.trimmed().isEmpty() )
++                lines << line;
++        }
++        return lines.join( '\n' );
++    };
++
++    const QString out = tidy( p.readAllStandardOutput() );
++    const QString err = tidy( p.readAllStandardError() );
++
++    const bool ok = p.exitStatus() == QProcess::NormalExit && p.exitCode() == 0;
++    if ( ok )
++    {
++        m_changed = true;
++        m_result->setText( out + "\n" + _("Close this window to restart the Control Center and see it.") );
++    }
++    else
++        m_result->setText( _("Not done: %1").arg( err.isEmpty() ? out : err ) );
++
++    return ok;
++}
++
++void LayoutDialog::addApp()
++{
++    QStringList args { "add-app", "--name", m_appName->text().trimmed(),
++                       "--exec", m_appExec->text().trimmed(),
++                       "--section", chosenSection( m_appSection ) };
++
++    if ( !m_appIcon->text().trimmed().isEmpty() )
++        args << "--icon" << m_appIcon->text().trimmed();
++    if ( !m_appComment->text().trimmed().isEmpty() )
++        args << "--comment" << m_appComment->text().trimmed();
++    if ( !m_appKeywords->text().trimmed().isEmpty() )
++        args << "--keywords" << m_appKeywords->text().trimmed();
++    if ( m_appTerminal->isChecked() )
++        args << "--terminal";
++
++    run( args );
++}
++
++void LayoutDialog::addSection()
++{
++    QStringList args { "add-section", "--name", m_secName->text().trimmed() };
++
++    if ( !m_secGenre->currentText().trimmed().isEmpty() )
++        args << "--genre" << m_secGenre->currentText().trimmed();
++    if ( !m_secIcon->text().trimmed().isEmpty() )
++        args << "--icon" << m_secIcon->text().trimmed();
++
++    run( args );
++}
++
++void LayoutDialog::moveApp( bool reset )
++{
++    const QString file = m_moveEntry->currentData().toString();
++
++    if ( reset )
++        run( { "move-app", file, "--reset" } );
++    else
++        run( { "move-app", file, "--to", chosenSection( m_moveTo ) } );
++}
++
++void LayoutDialog::renameSection( bool reset )
++{
++    const QString id = chosenSection( m_renSection );
++
++    if ( reset )
++        run( { "rename-section", id, "--reset" } );
++    else
++        run( { "rename-section", id, "--to", m_renName->text().trimmed() } );
++}
+diff --git c/src/layoutdialog.h i/src/layoutdialog.h
+new file mode 100644
+index 0000000..8ff6663
+--- /dev/null
++++ i/src/layoutdialog.h
+@@ -0,0 +1,99 @@
++/****************************************************************************
++|
++| Copyright (c) 2026 yast-on-arch contributors
++|
++| This program is free software; you can redistribute it and/or
++| modify it under the terms of version 2 of the GNU General Public License as
++| published by the Free Software Foundation.
++|
++| This program is distributed in the hope that it will be useful,
++| but WITHOUT ANY WARRANTY; without even the implied warranty of
++| MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.   See the
++| GNU General Public License for more details.
++|
++ \***************************************************************************/
++
++/*
++ * ARCH PORT: "Add or change..." dialog -- add programs and sections, move
++ * entries to another section and rename sections. Every change is made by
++ * the "yast" launcher (bin/yast-apps), the same commands as on the command
++ * line, so the dialog and the terminal always agree.
++ */
++
++#ifndef LAYOUTDIALOG_H
++#define LAYOUTDIALOG_H
++
++#include <QDialog>
++#include <QList>
++#include <QString>
++
++class QCheckBox;
++class QComboBox;
++class QLabel;
++class QLineEdit;
++class QTabWidget;
++
++struct LayoutSection
++{
++    QString id;
++    QString name;        // as shown now (after a rename)
++};
++
++struct LayoutEntry
++{
++    QString file;        // file name of the .desktop entry
++    QString name;        // as shown in the Control Center
++    QString section;     // section ID it is shown in now
++};
++
++class LayoutDialog : public QDialog
++{
++    Q_OBJECT
++
++public:
++    enum Page { AddApp, AddSection, MoveApp, RenameSection };
++
++    LayoutDialog( const QList<LayoutSection> &sections, const QList<LayoutEntry> &entries,
++                  QWidget *parent = nullptr );
++
++    void showPage( Page page, const QString &entryFile = QString() );
++
++    // true once something was changed (the Control Center needs a restart to show it)
++    bool changed() const { return m_changed; }
++
++private slots:
++    void addApp();
++    void addSection();
++    void moveApp( bool reset );
++    void renameSection( bool reset );
++
++private:
++    bool run( const QStringList &args );
++    void fillSectionBox( QComboBox *box );
++    QString chosenSection( QComboBox *box ) const;
++
++    QList<LayoutSection> m_sections;
++    QList<LayoutEntry> m_entries;
++    bool m_changed = false;
++
++    QTabWidget *m_tabs;
++    QLabel *m_result;
++
++    // Add a program
++    QLineEdit *m_appName, *m_appExec, *m_appIcon, *m_appComment, *m_appKeywords;
++    QComboBox *m_appSection;
++    QCheckBox *m_appTerminal;
++
++    // Add a section
++    QLineEdit *m_secName, *m_secIcon;
++    QComboBox *m_secGenre;
++
++    // Move an entry
++    QComboBox *m_moveEntry, *m_moveTo;
++
++    // Rename a section
++    QComboBox *m_renSection;
++    QLineEdit *m_renName;
++};
++
++#endif
+diff --git c/src/layoutoverlay.cpp i/src/layoutoverlay.cpp
+new file mode 100644
+index 0000000..a7e0891
+--- /dev/null
++++ i/src/layoutoverlay.cpp
+@@ -0,0 +1,114 @@
++/****************************************************************************
++|
++| Copyright (c) 2026 yast-on-arch contributors
++|
++| This program is free software; you can redistribute it and/or
++| modify it under the terms of version 2 of the GNU General Public License as
++| published by the Free Software Foundation.
++|
++| This program is distributed in the hope that it will be useful,
++| but WITHOUT ANY WARRANTY; without even the implied warranty of
++| MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.   See the
++| GNU General Public License for more details.
++|
++ \***************************************************************************/
++
++/*
++ * ARCH PORT: your own layout, see layoutoverlay.h.
++ *
++ * Read with a small parser instead of QSettings: section names may contain
++ * commas and other characters that QSettings' INI format would interpret.
++ */
++
++#include "layoutoverlay.h"
++
++#include <QDir>
++#include <QFile>
++#include <QHash>
++#include <QTextStream>
++
++namespace
++{
++    struct Layout
++    {
++        QHash<QString, QString> moves;
++        QHash<QString, QString> names;
++
++        Layout()
++        {
++            QFile f( layoutFilePath() );
++            if ( !f.open( QIODevice::ReadOnly | QIODevice::Text ) )
++                return;
++
++            QTextStream in( &f );
++            in.setCodec( "UTF-8" );
++            QHash<QString, QString> *section = nullptr;
++
++            while ( !in.atEnd() )
++            {
++                const QString line = in.readLine().trimmed();
++
++                if ( line.isEmpty() || line.startsWith( ';' ) || line.startsWith( '#' ) )
++                    continue;
++
++                if ( line == "[Moves]" )
++                    section = &moves;
++                else if ( line == "[Names]" )
++                    section = &names;
++                else if ( line.startsWith( '[' ) )
++                    section = nullptr;
++                else if ( section && line.contains( '=' ) )
++                {
++                    const QString key = line.section( '=', 0, 0 ).trimmed();
++                    const QString value = line.section( '=', 1 ).trimmed();
++                    if ( !key.isEmpty() && !value.isEmpty() )
++                        section->insert( key, value );
++                }
++            }
++        }
++    };
++
++    const Layout &layout()
++    {
++        static const Layout l;
++        return l;
++    }
++}
++
++QString layoutFilePath()
++{
++    QString data = qEnvironmentVariable( "XDG_DATA_HOME" );
++    if ( data.isEmpty() )
++        data = QDir::homePath() + "/.local/share";
++
++    return data + "/yast-on-arch/layout.ini";
++}
++
++QString movedSection( const QString &desktopFileName )
++{
++    return layout().moves.value( desktopFileName );
++}
++
++QString renamedSection( const QString &groupId )
++{
++    return layout().names.value( groupId );
++}
++
++namespace
++{
++    QHash<QString, QString> &installedNames()
++    {
++        static QHash<QString, QString> names;
++        return names;
++    }
++}
++
++void rememberInstalledName( const QString &shownName, const QString &installedName )
++{
++    installedNames().insert( shownName, installedName );
++}
++
++QString installedName( const QString &shownName )
++{
++    return installedNames().value( shownName, shownName );
++}
+diff --git c/src/layoutoverlay.h i/src/layoutoverlay.h
+new file mode 100644
+index 0000000..58820ab
+--- /dev/null
++++ i/src/layoutoverlay.h
+@@ -0,0 +1,49 @@
++/****************************************************************************
++|
++| Copyright (c) 2026 yast-on-arch contributors
++|
++| This program is free software; you can redistribute it and/or
++| modify it under the terms of version 2 of the GNU General Public License as
++| published by the Free Software Foundation.
++|
++| This program is distributed in the hope that it will be useful,
++| but WITHOUT ANY WARRANTY; without even the implied warranty of
++| MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.   See the
++| GNU General Public License for more details.
++|
++ \***************************************************************************/
++
++/*
++ * ARCH PORT: your own layout on top of the installed YaST entries.
++ *
++ * ~/.local/share/yast-on-arch/layout.ini (written by "yast move-app",
++ * "yast rename-section" and the Control Center's "Add or change" dialog):
++ *
++ *   [Moves]
++ *   org.opensuse.yast.Disk.desktop=Hardware      ; show this entry in another section
++ *
++ *   [Names]
++ *   Hardware=My Hardware                         ; show a section under another name
++ *
++ * The installed .desktop files are never changed, so a rebuild keeps your layout.
++ */
++
++#ifndef LAYOUTOVERLAY_H
++#define LAYOUTOVERLAY_H
++
++#include <QString>
++
++QString layoutFilePath();
++
++// Section ID an entry was moved to, or "" (key: the entry's file name).
++QString movedSection( const QString &desktopFileName );
++
++// New name of a section, or "" (key: the section ID).
++QString renamedSection( const QString &groupId );
++
++// Renamed sections keep their colour: the Control Center remembers which
++// installed name a shown name stands for.
++void rememberInstalledName( const QString &shownName, const QString &installedName );
++QString installedName( const QString &shownName );   // shownName if not renamed
++
++#endif
+diff --git c/src/main_window.cpp i/src/main_window.cpp
+index 19512a9..81e1a1d 100644
+--- c/src/main_window.cpp
++++ i/src/main_window.cpp
+@@ -51,6 +51,16 @@
+ #include "yqmodulesmodel.h"
+ #include "yqmodulegroupsmodel.h"
+ #include "listview.h"
++#include "sectioncolors.h"
++
++#include <QPainter>
++#include <QStyledItemDelegate>
++#include <QComboBox>
++#include <QPushButton>
++#include <QMenu>
++#include <QProcess>
++#include <QFileInfo>
++#include "layoutdialog.h"
+ 
+ //#include "moduleiconitem.h"
+ #define ORG_NAME "YaST2"
+@@ -67,6 +77,29 @@
+ // Group sidebar filter: while searching, show only the groups that contain a
+ // matching module. (The stock regexp filter on column 2 compared the groups'
+ // Comment, which group files don't have, so the sidebar never narrowed.)
++// ARCH PORT: a coloured stripe on the left of each sidebar group,
++// matching the colour of its section header (sectioncolors.cpp).
++class GroupColorDelegate : public QStyledItemDelegate
++{
++public:
++    GroupColorDelegate( QObject *parent ) : QStyledItemDelegate( parent ) {}
++
++    void paint( QPainter *painter, const QStyleOptionViewItem &option,
++                const QModelIndex &index ) const override
++    {
++        QStyleOptionViewItem opt( option );
++        const QColor accent = sectionColor( index.data( Qt::DisplayRole ).toString() );
++        if ( accent.isValid() )
++            opt.rect.adjust( 7, 0, 0, 0 );
++
++        QStyledItemDelegate::paint( painter, opt, index );
++
++        if ( accent.isValid() )
++            painter->fillRect( QRect( option.rect.left() + 1, option.rect.top() + 2,
++                                      4, option.rect.height() - 4 ), accent );
++    }
++};
++
+ class GroupFilterProxyModel : public QSortFilterProxyModel
+ {
+ public:
+@@ -183,12 +216,32 @@ MainWindow::MainWindow( Qt::WindowFlags wflags )
+ 
+     leftPanelLayout->addLayout( searchLayout );    
+ 
++    // ARCH PORT: Off / Headers / Whole block section colours (sectioncolors.cpp)
++    QHBoxLayout *colorLayout = new QHBoxLayout();
++    QLabel *colorLabel = new QLabel( _("Section &colours") );
++    QComboBox *colorBox = new QComboBox();
++    colorBox->addItem( _("Off") );
++    colorBox->addItem( _("Headers") );
++    colorBox->addItem( _("Whole block") );
++    colorBox->setCurrentIndex( sectionColorMode() );
++    colorLabel->setBuddy( colorBox );
++    colorLayout->addWidget( colorLabel );
++    colorLayout->addWidget( colorBox, 1 );
++    leftPanelLayout->addLayout( colorLayout );
++
++    // ARCH PORT: add programs and sections, move programs, rename sections (layoutdialog.cpp)
++    QPushButton *layoutButton = new QPushButton( _("&Add or change...") );
++    layoutButton->setToolTip( _("Add a program or a section, move a program to another section, "
++                                "or rename a section") );
++    leftPanelLayout->addWidget( layoutButton );
++
+     d->gcsfpm = new GroupFilterProxyModel( this );
+     d->gcsfpm->setSourceModel( d->modmodel->groupsModel() );
+ 
+     d->groupview = new ListView(  );
+ 
+     d->groupview->setModel(d->gcsfpm);
++    d->groupview->setItemDelegate( new GroupColorDelegate( d->groupview ) );
+     d->groupview->setIconSize( QSize(32,32) );
+     d->groupview->setSizeHint( readGroupViewSize() );
+ 
+@@ -199,6 +252,68 @@ MainWindow::MainWindow( Qt::WindowFlags wflags )
+     d->modview->selectCategory( d->modmodel->groupsModel()->data(selection).toString() );
+ 
+     leftPanelLayout->addWidget( d->groupview );
++
++    auto openLayout = [this]( LayoutDialog::Page page, const QString &entryFile )
++    {
++        QList<LayoutSection> sections;
++        YQModuleGroupsModel *groups = d->modmodel->groupsModel();
++        const QStringList fake { "Personal", "Favourites", "Recently Used", "Modules" };
++        for ( int row = 0; row < groups->rowCount( QModelIndex() ); ++row )
++        {
++            const QModelIndex idx = groups->index( row, 0 );
++            const QString id = groups->groupId( idx );
++            if ( !id.isEmpty() && !fake.contains( id ) )
++                sections << LayoutSection { id, groups->data( idx, Qt::DisplayRole ).toString() };
++        }
++
++        QList<LayoutEntry> entries;
++        for ( int row = 0; row < d->modmodel->rowCount( QModelIndex() ); ++row )
++        {
++            const QModelIndex idx = d->modmodel->index( row, 0 );
++            entries << LayoutEntry { QFileInfo( d->modmodel->desktopFilePath( row ) ).fileName(),
++                                     d->modmodel->data( idx, Qt::DisplayRole ).toString(),
++                                     d->modmodel->propertyValue( idx, "X-SuSE-YaST-Group" ).toString() };
++        }
++
++        LayoutDialog dlg( sections, entries, this );
++        dlg.showPage( page, entryFile );
++        dlg.exec();
++
++        // the models read the .desktop files once, so start again to show the change
++        if ( dlg.changed() )
++        {
++            writeSettings();   // quit() skips closeEvent(), which normally saves these
++            QProcess::startDetached( QCoreApplication::applicationFilePath(),
++                                     QCoreApplication::arguments().mid( 1 ) );
++            qApp->quit();
++        }
++    };
++
++    connect( layoutButton, &QPushButton::clicked, this,
++             [openLayout]() { openLayout( LayoutDialog::AddApp, QString() ); } );
++
++    // right-click a program: move it to another section
++    d->modview->setContextMenuPolicy( Qt::CustomContextMenu );
++    connect( d->modview, &QWidget::customContextMenuRequested, this, [this, openLayout]( const QPoint &pos )
++    {
++        const QModelIndex src = d->kcsfpm->mapToSource( d->modview->indexAt( pos ) );
++        if ( !src.isValid() )
++            return;
++
++        QMenu menu;
++        QAction *move = menu.addAction( _("Move to another section...") );
++        if ( menu.exec( d->modview->viewport()->mapToGlobal( pos ) ) == move )
++            openLayout( LayoutDialog::MoveApp,
++                        QFileInfo( d->modmodel->desktopFilePath( src.row() ) ).fileName() );
++    } );
++
++    connect( colorBox, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
++             [this]( int mode )
++             {
++                 setSectionColorMode( static_cast<SectionColorMode>( mode ) );
++                 d->modview->viewport()->update();
++                 d->groupview->viewport()->update();
++             } );
+     
+     groupdock->setWidget( leftPanel );
+ 
+diff --git c/src/sectioncolors.cpp i/src/sectioncolors.cpp
+new file mode 100644
+index 0000000..cccc87f
+--- /dev/null
++++ i/src/sectioncolors.cpp
+@@ -0,0 +1,213 @@
++/****************************************************************************
++|
++| Copyright (c) 2026 yast-on-arch contributors
++|
++| This program is free software; you can redistribute it and/or
++| modify it under the terms of version 2 of the GNU General Public License as
++| published by the Free Software Foundation.
++|
++| This program is distributed in the hope that it will be useful,
++| but WITHOUT ANY WARRANTY; without even the implied warranty of
++| MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.   See the
++| GNU General Public License for more details.
++|
++ \***************************************************************************/
++
++/*
++ * ARCH PORT: colour-coded sections, see sectioncolors.h.
++ *
++ * Optional ~/.config/yast-on-arch/section-colors.ini:
++ *
++ *   [General]
++ *   Mode=headers            ; off | headers | blocks (also set from the
++ *                           ; "Section colours" box under the search field)
++ *
++ *   [Colors]
++ *   Graphics=#e05c8a        ; override a family (or a full group name)
++ *
++ * Families without an entry in the built-in table get a stable colour
++ * derived from their name.
++ */
++
++#include "sectioncolors.h"
++#include "layoutoverlay.h"
++
++#include <QDir>
++#include <QHash>
++#include <QSettings>
++
++namespace
++{
++    QString iniPath()
++    {
++        return QDir::homePath() + "/.config/yast-on-arch/section-colors.ini";
++    }
++
++    struct SectionColors
++    {
++        SectionColorMode mode = SectionColorsHeaders;
++        QHash<QString, QColor> colors;     // family or group name -> colour
++        QHash<QString, QString> aliases;   // group name -> family
++
++        SectionColors()
++        {
++            // Mid-tone colours, readable on light and dark themes.
++            colors = {
++                { "Software",            QColor( "#4a90d9" ) },
++                { "Hardware",            QColor( "#e0803a" ) },
++                { "System",              QColor( "#8e6cd8" ) },
++                { "Network",             QColor( "#2bb3a3" ) },
++                { "Security",            QColor( "#d9534f" ) },
++                { "Emulators",           QColor( "#c94fb0" ) },
++                { "Graphics",            QColor( "#e8668f" ) },
++                { "Multimedia",          QColor( "#d4a017" ) },
++                { "Games",               QColor( "#5cb85c" ) },
++                { "Development",         QColor( "#5f8dd3" ) },
++                { "Office",              QColor( "#3fa7c9" ) },
++                { "Education & Science", QColor( "#8bbf3c" ) },
++                { "Internet",            QColor( "#26a69a" ) },
++                { "Settings",            QColor( "#a0784f" ) },
++                { "Utilities",           QColor( "#7f8fa6" ) },
++                { "Benchmarks",          QColor( "#e8743b" ) },
++                { "Information",         QColor( "#9b6fd6" ) },
++                { "Other",               QColor( "#8a8a8a" ) },
++            };
++
++            // Stand-alone groups that belong to a family above.
++            aliases = {
++                { "High Availability",       "System" },
++                { "Network Services",        "Network" },
++                { "Security and Users",      "Security" },
++                { "Virtualization",          "Emulators" },
++                { "EmuDeck",                 "Emulators" },
++                { "EmuDeck-managed Emulators", "Emulators" },
++                { "Game Engines & Ports",    "Emulators" },
++                { "Emulation Helpers",       "Emulators" },
++                { "Emulation Frontends",     "Emulators" },
++                { "Virtual Machines & Wine", "Emulators" },
++                { "SRS System Information",  "Information" },
++                { "Support",                 "Other" },
++                { "Miscellaneous",           "Other" },
++            };
++
++            QSettings ini( iniPath(), QSettings::IniFormat );
++            const QString m = ini.value( "Mode", "headers" ).toString().toLower();
++            if ( m == "off" )
++                mode = SectionColorsOff;
++            else if ( m == "blocks" )
++                mode = SectionColorsBlocks;
++
++            ini.beginGroup( "Colors" );
++            for ( const QString &key : ini.childKeys() )
++            {
++                QColor c( ini.value( key ).toString() );
++                if ( c.isValid() )
++                    colors.insert( key, c );
++            }
++            ini.endGroup();
++        }
++
++        QColor newFamilyColor( const QString &f )
++        {
++            QList<int> hues;
++            for ( const QColor &c : colors )
++                if ( c.hslHue() >= 0 && c.hslSaturation() > 60 )
++                    hues << c.hslHue();
++
++            int best = qHash( f ) % 360, bestGap = -1;
++            for ( int h = 0; h < 360; h += 3 )
++            {
++                int gap = 360;
++                for ( int u : hues )
++                {
++                    int d = qAbs( h - u );
++                    gap = qMin( gap, qMin( d, 360 - d ) );
++                }
++                if ( gap > bestGap )
++                {
++                    bestGap = gap;
++                    best = h;
++                }
++            }
++
++            const QColor c = QColor::fromHsl( best, 150, 135 );
++            colors.insert( f, c );
++
++            if ( !f.contains( '/' ) )   // "/" would split the INI key
++            {
++                QSettings ini( iniPath(), QSettings::IniFormat );
++                ini.setValue( "Colors/" + f, c.name() );
++            }
++            return c;
++        }
++
++        QString family( const QString &name ) const
++        {
++            if ( aliases.contains( name ) )
++                return aliases.value( name );
++
++            QString f = name.section( " - ", 0, 0 ).trimmed();
++
++            // "More - Graphics" -> Graphics, "More - System - Networking" -> Utilities
++            if ( f == "More" )
++            {
++                QString sub = name.section( " - ", 1, 1 ).trimmed();
++                if ( sub == "System" )
++                    return "Utilities";
++                if ( sub == "Emulators" || sub == "Benchmarks" || sub == "Settings" )
++                    return sub;
++                return colors.contains( sub ) ? sub : f;
++            }
++
++            // "Real-Time Corruptor - RTCV 5.1.1" is an emulator tool
++            if ( f == "Real-Time Corruptor" )
++                return "Emulators";
++
++            return f;
++        }
++    };
++
++    SectionColors &instance()
++    {
++        static SectionColors sc;
++        return sc;
++    }
++}
++
++QColor sectionColor( const QString &shownName )
++{
++    // a renamed section keeps the colour of its installed name
++    const QString groupName = installedName( shownName );
++
++    SectionColors &sc = instance();
++
++    if ( sc.mode == SectionColorsOff || groupName.isEmpty() )
++        return QColor();
++
++    // A full group name in the ini wins over its family.
++    if ( sc.colors.contains( groupName ) )
++        return sc.colors.value( groupName );
++
++    QString f = sc.family( groupName );
++    if ( sc.colors.contains( f ) )
++        return sc.colors.value( f );
++
++    // A new family (e.g. a section you added with a new genre) gets the hue
++    // furthest from every colour in use, saved to the ini so it stays the same
++    // and can be changed there.
++    return sc.newFamilyColor( f );
++}
++
++SectionColorMode sectionColorMode()
++{
++    return instance().mode;
++}
++
++void setSectionColorMode( SectionColorMode mode )
++{
++    instance().mode = mode;
++
++    static const char *names[] = { "off", "headers", "blocks" };
++    QSettings ini( iniPath(), QSettings::IniFormat );
++    ini.setValue( "Mode", names[mode] );   // Qt stores top-level keys under [General]
++}
+diff --git c/src/sectioncolors.h i/src/sectioncolors.h
+new file mode 100644
+index 0000000..f5bcd83
+--- /dev/null
++++ i/src/sectioncolors.h
+@@ -0,0 +1,47 @@
++/****************************************************************************
++|
++| Copyright (c) 2026 yast-on-arch contributors
++|
++| This program is free software; you can redistribute it and/or
++| modify it under the terms of version 2 of the GNU General Public License as
++| published by the Free Software Foundation.
++|
++| This program is distributed in the hope that it will be useful,
++| but WITHOUT ANY WARRANTY; without even the implied warranty of
++| MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.   See the
++| GNU General Public License for more details.
++|
++ \***************************************************************************/
++
++/*
++ * ARCH PORT: colour-coded sections.
++ *
++ * Every group gets a colour from its family (the part of the name before
++ * " - ", e.g. "Graphics - Vector" -> Graphics), so related sections share
++ * one colour. The "Section colours" box in the sidebar switches between
++ * Off, Headers and Whole block; colours can be changed in
++ * ~/.config/yast-on-arch/section-colors.ini (see sectioncolors.cpp).
++ */
++
++#ifndef SECTIONCOLORS_H
++#define SECTIONCOLORS_H
++
++#include <QColor>
++#include <QString>
++
++enum SectionColorMode
++{
++    SectionColorsOff = 0,       // no colours
++    SectionColorsHeaders = 1,   // coloured section headers + sidebar stripes
++    SectionColorsBlocks = 2,    // as Headers, and the whole section is tinted
++};
++
++// Colour for a group's display name; invalid QColor when colours are off.
++QColor sectionColor( const QString &groupName );
++
++SectionColorMode sectionColorMode();
++
++// Changes the mode and saves it to section-colors.ini.
++void setSectionColorMode( SectionColorMode mode );
++
++#endif
+diff --git c/src/yqdesktopfilesmodel.cpp i/src/yqdesktopfilesmodel.cpp
+index e8489af..b0b6589 100644
+--- c/src/yqdesktopfilesmodel.cpp
++++ i/src/yqdesktopfilesmodel.cpp
+@@ -22,6 +22,7 @@
+ 
+ 
+ #include <QSettings>
++#include "layoutoverlay.h"
+ #include <QDir>
+ #include <QIcon>
+ #include <QMap>
+@@ -114,6 +115,18 @@ PropertyMap YQDesktopFilesModel::readDesktopFile( const QString &filename )
+         QString key(keyit.next());
+         data.insert(key, desktopFile.value(key));
+     }
++
++    // ARCH PORT: a section can be shown under another name (layoutoverlay.cpp)
++    if ( filename.contains( "/groups/" ) )
++    {
++        const QString renamed = renamedSection( data.value( "X-SuSE-YaST-Group" ).toString() );
++        if ( !renamed.isEmpty() )
++        {
++            rememberInstalledName( renamed, data.value( "Name" ).toString() );
++            data.insert( "Name", renamed );
++            data.insert( "GenericName", renamed );
++        }
++    }
+     
+     qDebug() << filename << " read with " << data.size() << " keys";
+     
+@@ -213,6 +226,11 @@ QModelIndex YQDesktopFilesModel::index( int row, int column, const QModelIndex &
+     return createIndex(row, column);
+ }
+ 
++QString YQDesktopFilesModel::desktopFilePath( int row ) const
++{
++    return ( row >= 0 && row < d->desktop_files.size() ) ? d->desktop_files.at( row ) : QString();
++}
++
+ QVariant YQDesktopFilesModel::propertyValue( const QModelIndex &index, const QString &key ) const
+ {
+     // first lookup in cache
+diff --git c/src/yqdesktopfilesmodel.h i/src/yqdesktopfilesmodel.h
+index fd15579..36a3121 100644
+--- c/src/yqdesktopfilesmodel.h
++++ i/src/yqdesktopfilesmodel.h
+@@ -94,6 +94,9 @@ public:
+     QVariant translatedPropertyValue( const QModelIndex &index, const QString &key ) const;
+     QVariant findIcon ( QString &icon ) const;
+ 
++    // ARCH PORT: path of the .desktop file shown in this row
++    QString desktopFilePath( int row ) const;
++
+     virtual QVariant data( const QModelIndex &index, int role = Qt::DisplayRole ) const;
+ 
+     virtual void sort( int column, Qt::SortOrder order = Qt::AscendingOrder );
+diff --git c/src/yqmodulesmodel.cpp i/src/yqmodulesmodel.cpp
+index d003e71..187af31 100644
+--- c/src/yqmodulesmodel.cpp
++++ i/src/yqmodulesmodel.cpp
+@@ -22,6 +22,8 @@
+ 
+ #include <QDebug>
+ #include <QSettings>
++#include <QFileInfo>
++#include "layoutoverlay.h"
+ 
+ #include "yqmodulesmodel.h"
+ #include "yqmodulesproxymodel.h"
+@@ -107,16 +109,21 @@ PropertyMap YQModulesModel::readDesktopFile( const QString &path )
+ 	  desktopFile.value(rootOnly).toBool() )
+ 	return data;
+ 
++    // ARCH PORT: an entry can be shown in another section (layoutoverlay.cpp)
++    const QString moved = movedSection( QFileInfo( path ).fileName() );
++
+     QString oneGroup;
+     QString oneName;
+     while (keyit.hasNext())
+     {
+         QString key(keyit.next());
+-        data.insert(key, desktopFile.value(key));
++        data.insert(key, ( key == group && !moved.isEmpty() ) ? QVariant( moved ) : desktopFile.value(key));
++        if ( key == group && !moved.isEmpty() )
++            data.insert( "X-Arch-Installed-Group", desktopFile.value(key) );
+ 
+ 	// cache <groupname : modname> pairs to quickly look up
+ 	// what's the first module in the group
+-	oneGroup = desktopFile.value(group).toString();
++	oneGroup = moved.isEmpty() ? desktopFile.value(group).toString() : moved;
+ 	oneName = desktopFile.value(name).toString();
+ 
+ 	if ( priv->groupStringCache.find(oneGroup) != priv->groupStringCache.end() )
+@@ -243,6 +250,14 @@ void YQModulesModel::removeEmptyGroups()
+         }
+ 
+         QString group = it.value().value("X-SuSE-YaST-Group").toString();
++
++        // ARCH PORT: moved into a section that no longer exists -> show it at home
++        if ( !groups.contains( group ) && it.value().contains( "X-Arch-Installed-Group" ) )
++        {
++            group = it.value().value( "X-Arch-Installed-Group" ).toString();
++            it.value().insert( "X-SuSE-YaST-Group", group );
++        }
++
+         if ( !groups.contains( group ) )
+         {
+             QString file = it.key();

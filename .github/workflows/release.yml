@@ -3,8 +3,8 @@
 # How it runs:
 #   * Push a tag like v0.3.0 -> checks the tag equals "v" + VERSION, runs the full
 #     CI build (ci.yml) and, only if that passes, creates the GitHub release with
-#     the source tarball and SHA256SUMS attached. The release text is the
-#     CHANGELOG.md section of that version.
+#     the source tarball, the patches, the User Guide PDF and SHA256SUMS attached.
+#     The release text is the CHANGELOG.md section of that version.
 #   * "Run workflow" button (or: gh workflow run release.yml --ref BRANCH)
 #     -> the same checks and build, but NO release: the files are kept as a
 #     downloadable "release-files" artifact on the workflow run page.
@@ -55,14 +55,19 @@ jobs:
           fi
           echo "version=$VER" >> "$GITHUB_OUTPUT"
 
-      - name: Source tarball, SHA256SUMS and release notes
+      - name: Source tarball, patches, User Guide PDF, SHA256SUMS and release notes
         env:
           VER: ${{ steps.ver.outputs.version }}
         run: |
           mkdir -p release
           git archive --format=tar.gz --prefix="yast-on-arch-$VER/" -o "release/yast-on-arch-$VER.tar.gz" HEAD
+          # the patches on their own, for anyone porting YaST to another distribution
+          git archive --format=tar.gz --prefix="yast-on-arch-$VER-patches/" -o "release/yast-on-arch-$VER-patches.tar.gz" HEAD patches
+          # the User Guide as a PDF (built with docs/build-pdf.sh and committed); must be a real PDF
+          cp docs/YaST-on-Arch-User-Guide.pdf "release/YaST-on-Arch-$VER-User-Guide.pdf"
+          [ "$(head -c5 "release/YaST-on-Arch-$VER-User-Guide.pdf")" = "%PDF-" ] || { echo "::error::User Guide PDF is not a PDF"; exit 1; }
           (cd release && sha256sum -- * > SHA256SUMS)
-          n=$(find release -type f | wc -l); [ "$n" -eq 2 ] || { echo "::error::expected 2 release files, got $n"; ls -l release; exit 1; }
+          n=$(find release -type f | wc -l); [ "$n" -eq 4 ] || { echo "::error::expected 4 release files, got $n"; ls -l release; exit 1; }
           ls -l release; cat release/SHA256SUMS
           .github/ci/release-info.sh notes "$VER" > release-notes.md
           echo "yast-on-arch $VER" > release-title.txt
@@ -110,8 +115,8 @@ jobs:
               gh release upload "$TAG" release/* --clobber
               gh release edit "$TAG" --title "$(cat release-title.txt)" --notes-file release-notes.md --draft=false
             else
-              echo "::error::release $TAG is already published; delete it first (gh release delete $TAG) if you want to rebuild it"
-              exit 1
+              # e.g. the tag was pushed again: keep the files people may have downloaded
+              echo "::notice::release $TAG is already published; leaving it unchanged (gh release delete $TAG to rebuild it)"
             fi
           else
             gh release create "$TAG" release/* --verify-tag \

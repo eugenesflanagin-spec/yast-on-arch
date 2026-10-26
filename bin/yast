@@ -28,7 +28,7 @@ while :; do case "${1:-}" in
 esac; done
 # Your own Control Center entries (bin/yast-apps), and the version
 case "${1:-}" in
-  add-app|remove-app|remove-section|list-apps|list-sections|sync-apps)
+  add-app|remove-app|remove-section|list-apps|list-sections|sync-apps|add-section|move-app|rename-section|list-layout)
     exec "$SELF/yast-apps" "$@" ;;
   --version|-V)
     echo "yast-on-arch $(cat "$SELF/VERSION" 2>/dev/null || echo unknown)"; exit 0 ;;
@@ -67,7 +67,7 @@ if [ -z "$1" ]; then
     echo "YaST on Arch  (prefix: $P)"
     echo "usage: yast [-r] [-q|-g] <module>   (-r = as root, -q = Qt GUI, -g = GTK GUI dark, default ncurses)"
     echo "       yast control-center           (classic Qt Control Center, as user; modules escalate on click)"
-    echo "       yast add-app --help           (add your own programs/sections to the Control Center)"
+    echo "       yast add-app --help           (add, move or rename Control Center entries and sections)"
     echo "       yast --version"
     echo
     echo "available clients:"

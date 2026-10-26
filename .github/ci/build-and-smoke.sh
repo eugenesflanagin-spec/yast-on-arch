@@ -16,7 +16,7 @@
 #   3. checks the log: every patch applied freshly, no module FAILed, no warnings;
 #   4. smoke checks (as builder, all read-only or inside the build's own prefix):
 #      yast --version, yast (client list), list-sections, add-app/list-apps/
-#      remove-app with a throw-away HOME, ag_probe --selftest, missing-library
+#      remove-app, add-section/move-app/rename-section with a throw-away HOME, ag_probe --selftest, missing-library
 #      check, desktop-file-validate, ruby/perl/bash syntax checks.
 #
 # It NEVER starts a YaST module or the Control Center: modules can write system
@@ -130,6 +130,26 @@ smoke() {
     [[ ! -e "$D/org.archlinux.yast.User.CISmokeTest.desktop" ]] || fail "remove-app left the entry in the prefix"
     [[ ! -e "$D/groups/org.archlinux.yast.Group.UserCISection.desktop" ]] || fail "remove-section left the section in the prefix"
     "$ROOT/yast" list-apps | grep -q '^(none yet' || fail "list-apps not empty after remove-app"
+
+    # add-section, move-app, rename-section, list-layout (they only write layout.ini)
+    L="$XDG_DATA_HOME/yast-on-arch/layout.ini"
+    "$ROOT/yast" add-section --name "CI Racers" --genre Games
+    "$ROOT/yast" list-sections | grep -q '^GamesCIRacers  *Games - CI Racers  (yours)$' || fail "add-section: not listed"
+    if "$ROOT/yast" add-section --name "CI Racers" --genre Games 2>/dev/null; then fail "add-section accepted a duplicate"; fi
+    if "$ROOT/yast" rename-section Hardware --to "A, B" 2>/dev/null; then fail "rename-section accepted a comma"; fi
+    if "$ROOT/yast" rename-section Hardware --to "System" 2>/dev/null; then fail "rename-section accepted a name in use"; fi
+    entry="$(basename "$(grep -l '^X-SuSE-YaST-Group=Software$' "$D"/*.desktop | head -1)")"
+    [[ -n $entry ]] || fail "no Software entry to move"
+    "$ROOT/yast" move-app "$entry" --to GamesCIRacers
+    "$ROOT/yast" rename-section Hardware --to "CI Hardware"
+    grep -qx "$entry=GamesCIRacers" "$L" || fail "move-app did not write layout.ini"
+    grep -qx "Hardware=CI Hardware" "$L" || fail "rename-section did not write layout.ini"
+    "$ROOT/yast" list-sections | grep -q '^Hardware  *CI Hardware$' || fail "list-sections ignores the rename"
+    if "$ROOT/yast" move-app "$entry" --to NoSuchSection 2>/dev/null; then fail "move-app accepted an unknown section"; fi
+    "$ROOT/yast" remove-section GamesCIRacers      # sends the moved entry home
+    grep -q "^$entry=" "$L" && fail "remove-section left a move into the removed section"
+    "$ROOT/yast" rename-section Hardware --reset
+    "$ROOT/yast" list-layout | grep -q '^(no moves' || fail "layout not empty after the resets"
   )
   rm -rf "$tmp"
 

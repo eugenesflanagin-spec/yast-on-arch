@@ -2,9 +2,27 @@
 
 All notable changes to yast-on-arch. Versions follow [semantic versioning](https://semver.org/).
 
-## Unreleased
+## 0.3.0 — 2026-10-26
 
 ### New
+
+- **Colour-coded Control Center.** A *Section colours* box under the search field: **Off**,
+  **Headers** (coloured section headers and a matching stripe in the group list; the default) or
+  **Whole block** (the whole section, programs included, is tinted). Related sections share a
+  colour ("Graphics - …" pink, "Games - …" green, Hardware orange…). Saved in
+  `~/.config/yast-on-arch/section-colors.ini`, where every colour can be changed. A new genre gets
+  the colour furthest from the ones in use; a renamed section keeps its colour.
+- **"Add or change..." in the Control Center**: a window to add a program, add a section (pick a
+  genre to share its colour, or type a new one), move a program to another section and rename a
+  section. Also on a program's right-click menu. The Control Center restarts by itself afterwards.
+- **Move any program and rename any section**, YaST's own included: `yast move-app NAME --to ID`,
+  `yast rename-section ID --to NAME` (`--reset` undoes either), `yast list-layout`. Nothing
+  installed is changed: the layout is `~/.local/share/yast-on-arch/layout.ini` and survives
+  rebuilds. Shown by the Qt Control Center.
+- **`yast add-section --name NAME [--genre GENRE] [--icon ICON]`** makes an empty section.
+- **User Guide PDF** (`docs/YaST-on-Arch-User-Guide.pdf`, built by `docs/build-pdf.sh`), with
+  screenshots of the new features.
+- Releases now also carry the User Guide PDF and the patches on their own.
 
 - **Continuous integration** (`.github/workflows/ci.yml`): every push and pull request to `main`
   runs `bootstrap.sh` from scratch in a clean `archlinux:base-devel` container, as a normal user,
@@ -16,6 +34,15 @@ All notable changes to yast-on-arch. Versions follow [semantic versioning](https
 - **Releases** (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` that matches `VERSION`
   runs the full CI and then publishes a GitHub release with the source tarball and `SHA256SUMS`;
   the text comes from this file. A published release is never overwritten.
+
+### Changed
+
+- `yast remove-section` also forgets the section's rename and sends programs moved into it back to
+  their own sections.
+- Names of programs and sections (`add-app --name`, `--new-section`, `add-section`,
+  `rename-section`) can't contain commas, `"` or `\` or start or end with a space any more: the
+  Control Center showed such names differently from what was typed.
+- The release workflow leaves an already published release alone with a notice instead of failing.
 
 ### Fixed
 

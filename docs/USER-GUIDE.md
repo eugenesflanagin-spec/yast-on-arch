@@ -1,7 +1,7 @@
 # yast-on-arch — User Guide
 
 openSUSE's YaST system-configuration tool, built and running on Arch Linux.
-This guide describes version **0.2.0** (`~/libyui-port/yast --version`; changes are listed in
+This guide describes version **0.3.0** (`~/libyui-port/yast --version`; changes are listed in
 [CHANGELOG.md](../CHANGELOG.md)).
 
 This guide is for anyone installing yast-on-arch, from people who remember YaST from SuSE and
@@ -181,6 +181,53 @@ Entries without a YaST module behind them (Octopi) are started as your user, det
 
 Search: type in the search box and both the module grid and the group list narrow to matches.
 
+**Section colours.** The *Section colours* box under the search field has three settings:
+
+- **Off**: no colours, as YaST always looked.
+- **Headers** (the default): each section header gets a colour, with a matching stripe next to
+  the section in the group list.
+- **Whole block**: as Headers, and the whole section, programs included, is tinted down to the
+  next header.
+
+Related sections share a colour: every "Graphics - …" section is pink, every "Games - …" section
+green, Hardware orange, Emulators magenta, and so on. Your choice is saved in
+`~/.config/yast-on-arch/section-colors.ini`. You can change any colour there:
+
+```ini
+[General]
+Mode=blocks          ; off, headers or blocks
+
+[Colors]
+Graphics=#e05c8a     ; a genre (the part of a section name before " - ")
+My Tools=#40a0ff     ; or one section by its full name
+```
+
+![The Control Center with Section colours set to Whole block](images/section-colours-whole-block.png)
+
+When the Control Center saves this file (you change the mode, or a new genre gets its colour) it
+rewrites it in Qt's format: comments are dropped and special characters in names are written as
+`%20` and the like. That is normal; it still reads the same.
+
+A genre the Control Center hasn't seen before (for example one you made with *Add a section*)
+gets the colour furthest from every colour already in use, written to that file so it stays the
+same. A renamed section keeps its colour.
+
+**Add or change...** (the button under *Section colours*) opens a window with four tabs:
+
+| tab | does |
+|---|---|
+| Add a program | name, command, icon, description, search words, section, "run in a terminal" |
+| Add a section | name, genre and icon. Pick an existing genre to share its colour (the section is called "Genre - Name"), type a new genre for a colour of its own, or leave it empty. |
+| Move a program | show any program, also YaST's own modules, in another section. *Put back* returns it to its own section. |
+| Rename a section | show any section, also YaST's own, under another name. *Original name* undoes it. |
+
+![The Add or change window, Rename a section tab](images/add-or-change-window.png)
+
+You can also right-click a program and choose *Move to another section...*. When you close the
+window after a change, the Control Center restarts by itself to show it. The window runs the same
+`yast add-app`, `add-section`, `move-app` and `rename-section` commands as section 5, so the
+terminal and the window always agree.
+
 ### The three front-ends
 
 | flag | front-end | notes |
@@ -268,7 +315,11 @@ menu (`yast -r menu`, `yast -r -g menu`).
 | `yast list-sections` | every section ID you can give to `--section` (stock and yours) |
 | `yast list-apps` | the programs you added (ID, section, name) |
 | `yast remove-app NAME` or `ID` | remove one of your programs |
-| `yast remove-section ID` | remove one of your sections (it must be empty) |
+| `yast add-section --name NAME [--genre GENRE] [--icon ICON]` | make an empty section; with `--genre` it is called "GENRE - NAME" and shares that genre's colour |
+| `yast move-app NAME --to ID` | show any program (yours or YaST's) in another section; `--reset` puts it back |
+| `yast rename-section ID --to NAME` | show any section (yours or YaST's) under another name; `--reset` undoes it |
+| `yast list-layout` | your moves and renames |
+| `yast remove-section ID` | remove one of your sections (it must be empty; programs you moved into it go back home) |
 | `yast sync-apps` | copy your entries into YaST again (the build does this for you) |
 | `yast add-app --help` | all options |
 
@@ -300,6 +351,33 @@ sections in `…/applications/groups/`. They are copied into
 reads them. Each file carries the line `X-YaST-On-Arch-User=true`; only files with that line
 are ever replaced or deleted there, so stock modules and files you placed by hand are never
 touched. Back up the first folder and you have backed up your additions.
+
+### Moving programs and renaming sections
+
+```sh
+~/libyui-port/yast move-app "Clean pacman cache" --to Hardware   # by the name you see, its ID or file name
+~/libyui-port/yast move-app "Clean pacman cache" --reset         # back to its own section
+~/libyui-port/yast rename-section Hardware --to "Hardware & Fans"
+~/libyui-port/yast rename-section Hardware --reset
+~/libyui-port/yast list-layout
+```
+
+These work for every program and section, including YaST's own, because nothing installed is
+changed: your layout is a small file, `~/.local/share/yast-on-arch/layout.ini`, that the Qt
+Control Center reads when it starts:
+
+```ini
+[Moves]
+org.archlinux.yast.PacmanCache.desktop=Hardware
+
+[Names]
+Hardware=Hardware & Fans
+```
+
+It survives rebuilds. If you remove a section that programs were moved into, they go back to their
+own sections. Moves and renames show in the Qt Control Center; the text-mode and GTK menus
+(`yast -r menu`, `yast -r -g menu`) still use the installed layout. Names of programs and sections can't contain commas, `"` or `\`, or start or end
+with a space: YaST would show them differently.
 
 ### The manual way: drop a file into the repository
 
@@ -425,7 +503,8 @@ YaST is not a viewer. It edits real configuration files and starts and stops rea
 ```
 yast [-r] [-q|-g] <module> [module args...]
 yast control-center | cc [Control Center args...]
-yast add-app | remove-app | remove-section | list-apps | list-sections | sync-apps   (section 5)
+yast add-app | remove-app | add-section | remove-section | list-apps | list-sections |
+     move-app | rename-section | list-layout | sync-apps                              (section 5)
 yast --version
 yast                       (list modules)
 ```
@@ -479,6 +558,8 @@ falls back to `$YAST_ARCH_ROOT`.
 | `/etc/systemd/system/ypbind.service.d/50-yast-arch-args.conf` | only if `ypbind-mt` is installed | Arch's `ypbind` unit takes its options on the command line. This drop-in reads them from `/etc/conf.d/ypbind`, which is where the NIS Client module saves them. |
 | `~/.local/share/applications/yast-*.desktop` | unless `YAST_NO_MENU_ENTRIES` is set | menu entries |
 | `~/.local/share/yast-on-arch/applications/` | only when you use `yast add-app` | your own Control Center entries (section 5) |
+| `~/.local/share/yast-on-arch/layout.ini` | only when you move a program or rename a section | your layout (section 5) |
+| `~/.config/yast-on-arch/section-colors.ini` | when you change *Section colours* or add a genre | colour mode and colours (section 4) |
 | `/var/log/YaST2/` | you create it | root log folder |
 | user gems in `~/.local/share/gem/` | always | YaST's Ruby dependencies |
 
@@ -578,6 +659,7 @@ That is real system configuration and it doesn't depend on YaST.
 | 19 | yast-nis-client | ypbind settings in `/etc/conf.d/ypbind` (+ the systemd drop-in) |
 | 20 | yast2-control-center | search no longer freezes with thousands of modules |
 | 21 | yast2-control-center | group sidebar narrows to groups with matching modules while searching |
+| 22 | yast2-control-center | section colours (Off / Headers / Whole block); "Add or change..." window; moved programs and renamed sections from `layout.ini` |
 
 Plus the Arch stand-ins in `arch/`: `Pkg` (pacman-backed queries, no transactions), no-op
 `InstURL`/`Packages`/`SLPAPI`/`PackageSlideShow`, `cfa/grub2` copies for `/boot/grub`, a Perl

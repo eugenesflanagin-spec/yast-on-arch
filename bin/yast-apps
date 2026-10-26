@@ -2,12 +2,16 @@
 # yast-on-arch -- add your own programs (and sections) to the YaST Control Center.
 #
 # Normally run through the launcher:  yast add-app | remove-app | list-apps |
-#                                      list-sections | remove-section | sync-apps
+#                                      add-section | rename-section | remove-section |
+#                                      list-sections | move-app | list-layout | sync-apps
 #
 # Where things live:
 #   your entries (kept)   ${XDG_DATA_HOME:-~/.local/share}/yast-on-arch/applications/*.desktop
 #                         ${XDG_DATA_HOME:-~/.local/share}/yast-on-arch/applications/groups/*.desktop
 #   what YaST reads       <root>/prefix/destdir/usr/share/applications/YaST2/{,groups/}
+#   your layout           ${XDG_DATA_HOME:-~/.local/share}/yast-on-arch/layout.ini
+#                         (moved entries and renamed sections; read by the Control Center,
+#                         installed files are never changed)
 # Every add/remove copies your entries into the second folder ("sync"); bootstrap.sh
 # runs the same sync at its end, so a rebuild brings them back. Only files carrying
 # the line X-YaST-On-Arch-User=true are ever written or deleted there, so stock YaST
@@ -18,6 +22,7 @@ MARK="X-YaST-On-Arch-User=true"
 ROOT="${YAST_APPS_ROOT:-$(cd "$(dirname "$(readlink -f "$0")")" && pwd)}"
 D="$ROOT/prefix/destdir/usr/share/applications/YaST2"
 U="${XDG_DATA_HOME:-$HOME/.local/share}/yast-on-arch/applications"
+L="${XDG_DATA_HOME:-$HOME/.local/share}/yast-on-arch/layout.ini"
 
 die()  { printf 'yast: %s\n' "$*" >&2; exit 1; }
 warn() { printf 'yast: warning: %s\n' "$*" >&2; }
@@ -39,13 +44,24 @@ Add your own programs to the YaST Control Center (no root needed).
       --replace            replace your own entry of the same ID
       --force              accept a COMMAND whose program is not found right now
 
+  yast add-section --name NAME [--genre GENRE] [--icon ICON]
+      make an empty section. With --genre it is called "GENRE - NAME" and shares
+      that genre's colour (e.g. --genre Games); a new genre gets its own colour.
+
+  yast move-app NAME|ID|FILE --to SECTION   show any entry (yours or stock) in another section
+  yast move-app NAME|ID|FILE --reset        put it back in its own section
+  yast rename-section SECTION --to NAME     show a section (yours or stock) under another name
+  yast rename-section SECTION --reset       give it back its own name
+  yast list-layout                          list your moves and renames
+
   yast remove-app NAME|ID          remove one of your entries
   yast remove-section ID           remove one of your (empty) sections
   yast list-apps                   list your entries
   yast list-sections               list every section ID you can use with --section
   yast sync-apps                   copy your entries into YaST again (bootstrap does this)
 
-Restart the Control Center to see changes.
+Restart the Control Center to see changes. The Control Center's "Add or change..."
+button (under the search field) does all of this too.
 EOF
 }
 
@@ -71,6 +87,14 @@ check_text() {   # check_text WHAT VALUE
   [[ "$2" != *$'\n'* && "$2" != *$'\r'* ]] || die "$1 must be one line"
   [[ "$2" != *[[:cntrl:]]* ]] || die "$1 contains control characters"
   (( ${#2} <= 200 )) || die "$1 is too long (max 200 characters)"
+}
+
+# check_name WHAT VALUE -- a section or program name as YaST will show it
+check_name() {
+  check_text "$1" "$2"
+  [[ "$2" == "${2#[[:space:]]}" && "$2" == "${2%[[:space:]]}" ]] || die "$1 must not start or end with a space"
+  [[ "$2" != *[\\\"]* ]] || die "$1 must not contain \" or \\ (YaST cannot show them)"
+  [[ "$2" != *,* ]] || die "$1 must not contain commas"
 }
 
 check_icon() {
@@ -135,7 +159,7 @@ add_app() {
       *) die "add-app: unknown option '$1' (see: yast add-app --help)" ;;
     esac
   done
-  check_text "--name" "$name"
+  check_name "--name" "$name"
   check_text "--exec" "$exec"
   [[ -z "$comment" ]] || check_text "--comment" "$comment"
   [[ -z "$keywords" ]] || { check_text "--keywords" "$keywords"; [[ "$keywords" =~ ^[^\;=]+$ ]] || die "--keywords: separate words with commas"; }
@@ -165,14 +189,14 @@ add_app() {
 
   local gid="${section:-Misc}" gfile=""
   if [[ -n "$newsec" ]]; then
-    check_text "--new-section" "$newsec"
+    check_name "--new-section" "$newsec"
     gid="$(slug "$newsec")"
     [[ -n "$gid" ]] || die "cannot make a section ID from '$newsec' (use letters or digits)"
     gfile="$U/groups/org.archlinux.yast.Group.User$gid.desktop"
-    if section_ids | grep -qx "$gid" && [[ ! -f "$gfile" ]]; then
+    if section_ids | grep -qxF -- "$gid" && [[ ! -f "$gfile" ]]; then
       die "a section with ID '$gid' already exists; use --section $gid"
     fi
-  elif ! section_ids | grep -qx "$gid"; then
+  elif ! section_ids | grep -qxF -- "$gid"; then
     die "no section with ID '$gid' (see: yast list-sections, or create one with --new-section)"
   fi
 
@@ -229,6 +253,163 @@ add_app() {
   sync_apps
 }
 
+# --- layout.ini: [Moves] file.desktop=SECTION, [Names] SECTION=NAME -------------
+
+# layout_get SECTION KEY
+layout_get() {
+  [[ -f "$L" ]] || return 0
+  s="[$1]" k="$2" awk '
+    BEGIN { s = ENVIRON["s"]; k = ENVIRON["k"] }
+    /^\[/ { in_s = ($0 == s); next }
+    in_s && index($0, "=") { key = substr($0, 1, index($0, "=") - 1); if (key == k) { print substr($0, index($0, "=") + 1); exit } }
+  ' "$L"
+}
+
+# layout_set SECTION KEY VALUE   (empty VALUE removes KEY)
+layout_set() {
+  mkdir -p "$(dirname "$L")"
+  local tmp; tmp="$(mktemp "$L.XXXXXX")"
+  { if [[ -f "$L" ]]; then cat "$L"; fi; } | s="[$1]" k="$2" v="$3" awk '
+    BEGIN { s = ENVIRON["s"]; k = ENVIRON["k"]; v = ENVIRON["v"] }
+    function emit() { if (!done && v != "") print k "=" v; done = 1 }
+    /^\[/ { if (in_s) emit(); in_s = ($0 == s); if (in_s) seen = 1; print; next }
+    in_s && index($0, "=") && substr($0, 1, index($0, "=") - 1) == k { next }
+    { print }
+    END { if (in_s) emit(); else if (!seen && v != "") { print ""; print s; print k "=" v } }
+  ' > "$tmp"
+  # keep the file tidy: drop empty sections
+  awk '/^\[/ { hdr = $0; next } NF { if (hdr != "") { print hdr; hdr = "" } print }' "$tmp" > "$tmp.2"
+  mv -f "$tmp.2" "$L"; rm -f "$tmp"
+}
+
+section_name() {   # section_name ID -> name as installed
+  local f
+  for f in "$D"/groups/*.desktop "$U"/groups/*.desktop; do
+    [[ -f "$f" ]] && [[ "$(value X-SuSE-YaST-Group "$f")" == "$1" ]] && { value Name "$f"; return 0; }
+  done
+  return 1
+}
+
+shown_name() { local n; n="$(value GenericName "$1")"; echo "${n:-$(value Name "$1")}"; }
+
+# find_entry NAME|ID|FILE -> path of any entry (stock or yours) YaST shows
+find_entry() {
+  local f hits=()
+  for f in "$D"/*.desktop; do
+    [[ -f "$f" ]] || continue
+    if [[ "$(basename "$f")" == "$1" || "$(basename "$f" .desktop)" == "$1" \
+          || "$(basename "$f")" == "org.archlinux.yast.User.$1.desktop" ]]; then
+      echo "$f"; return 0
+    fi
+  done
+  mapfile -t hits < <(grep -lxF -e "Name=$1" -e "GenericName=$1" -- "$D"/*.desktop 2>/dev/null || true)
+  (( ${#hits[@]} == 1 )) && { echo "${hits[0]}"; return 0; }
+  (( ${#hits[@]} > 1 )) && { echo "AMBIGUOUS ${hits[*]##*/}"; return 2; }
+  return 1
+}
+
+add_section() {
+  local name="" genre="" icon="folder"
+  while (( $# )); do
+    case "$1" in
+      --name|--genre|--icon) need_value "$@" ;;&
+      --name) name="$2"; shift 2 ;;
+      --genre) genre="$2"; shift 2 ;;
+      --icon) icon="$2"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "add-section: unknown option '$1' (see: yast --help)" ;;
+    esac
+  done
+  check_name "--name" "$name"; check_icon "$icon"
+  [[ -z "$genre" ]] || { check_name "--genre" "$genre"; [[ "$genre" != *" - "* ]] || die "--genre must not contain ' - '"; }
+  local full="$name"; [[ -n "$genre" ]] && full="$genre - $name"
+  local gid; gid="$(slug "$full")"
+  [[ -n "$gid" ]] || die "cannot make a section ID from '$full' (use letters or digits)"
+  section_ids | grep -qxF -- "$gid" && die "a section with ID '$gid' already exists"
+  list_sections | sed 's/^[^ ]* *//; s/  (yours)$//' | grep -qxF -- "$full" && die "a section called '$full' already exists"
+  mkdir -p "$U/groups"
+  local gfile="$U/groups/org.archlinux.yast.Group.User$gid.desktop"
+  local gtmp; gtmp="$(mktemp --suffix=.desktop "$U/groups/.add-section.XXXXXX")"
+  {
+    echo "[Desktop Entry]"
+    echo "Type=Application"
+    echo "Categories=Settings;Qt;X-SuSE-YaST;"
+    echo "$MARK"
+    echo "X-SuSE-YaST-Group=$gid"
+    echo "X-SuSE-YaST-SortKey=90"
+    echo "OnlyShowIn=X-SuSE-YaST;"
+    echo "Icon=$icon"
+    echo "Name=$full"
+    echo "GenericName=$full"
+    echo "Exec=true"
+  } > "$gtmp"
+  validate_file "$gtmp" || { rm -f "$gtmp"; die "the generated section did not validate; nothing was added"; }
+  chmod 644 "$gtmp"; mv -f "$gtmp" "$gfile"
+  echo "yast: new section '$full' (ID $gid)"
+  sync_apps
+}
+
+move_app() {
+  local what="${1:-}" to="" reset=0; shift || true
+  [[ -n "$what" ]] || die "usage: yast move-app NAME|ID|FILE --to SECTION  (or --reset)"
+  while (( $# )); do
+    case "$1" in
+      --to) need_value "$@"; to="$2"; shift 2 ;;
+      --reset) reset=1; shift ;;
+      *) die "move-app: unknown option '$1'" ;;
+    esac
+  done
+  local f rc=0; f="$(find_entry "$what")" || rc=$?
+  (( rc == 2 )) && die "more than one entry is called '$what'; use its file name: ${f#AMBIGUOUS }"
+  (( rc == 0 )) || die "no entry '$what' in the Control Center"
+  local base; base="$(basename "$f")"
+  if (( reset )); then
+    layout_set Moves "$base" ""
+    echo "yast: '$(shown_name "$f")' is back in section $(value X-SuSE-YaST-Group "$f")"; return 0
+  fi
+  [[ -n "$to" ]] || die "move-app: give --to SECTION or --reset"
+  section_ids | grep -qxF -- "$to" || die "no section with ID '$to' (see: yast list-sections)"
+  if [[ "$to" == "$(value X-SuSE-YaST-Group "$f")" ]]; then
+    layout_set Moves "$base" ""
+  else
+    layout_set Moves "$base" "$to"
+  fi
+  echo "yast: '$(shown_name "$f")' now shows in section $to"
+}
+
+rename_section() {
+  local gid="${1:-}" to="" reset=0; shift || true
+  [[ -n "$gid" ]] || die "usage: yast rename-section SECTION --to NAME  (or --reset)"
+  while (( $# )); do
+    case "$1" in
+      --to) need_value "$@"; to="$2"; shift 2 ;;
+      --reset) reset=1; shift ;;
+      *) die "rename-section: unknown option '$1'" ;;
+    esac
+  done
+  section_ids | grep -qxF -- "$gid" || die "no section with ID '$gid' (see: yast list-sections)"
+  local other own
+  other="$(list_sections | awk -v g="$gid" '$1 != g' | sed 's/^[^ ]* *//; s/  (yours)$//')"
+  own="$(section_name "$gid" || true)"
+  if (( reset )) || [[ -n "$own" && "$to" == "$own" ]]; then
+    [[ -n "$own" ]] && grep -qxF -- "$own" <<<"$other" \
+      && die "another section is shown as '$own' now; rename that one first"
+    layout_set Names "$gid" ""; echo "yast: section $gid has its own name again"; return 0
+  fi
+  check_name "--to" "$to"
+  grep -qxF -- "$to" <<<"$other" && die "another section is already called '$to'"
+  layout_set Names "$gid" "$to"
+  echo "yast: section $gid is now shown as '$to'"
+}
+
+list_layout() {
+  [[ -s "$L" ]] || { echo "(no moves or renames yet)"; return 0; }
+  cat "$L"
+}
+
+# need_value OPTION ARGS... -- die unless the option has a value after it
+need_value() { (( $# >= 2 )) || die "$1 needs a value"; }
+
 find_mine() {   # find_mine NAME|ID -> path of your entry
   local f
   for f in "$U"/*.desktop; do
@@ -257,6 +438,13 @@ remove_section() {
     [[ -f "$f" ]] && [[ "$(value X-SuSE-YaST-Group "$f")" == "$1" ]] && is_mine "$f" \
       && die "section '$1' still has entries; remove them first (yast list-apps)"
   done
+  # forget its rename and send entries moved into it back home
+  layout_set Names "$1" ""
+  if [[ -f "$L" ]]; then
+    local k
+    while IFS= read -r k; do layout_set Moves "$k" ""; done < <(
+      t="$1" awk 'BEGIN { t = ENVIRON["t"] } /^\[/ { m = ($0 == "[Moves]"); next } m && index($0, "=") && substr($0, index($0, "=") + 1) == t { print substr($0, 1, index($0, "=") - 1) }' "$L")
+  fi
   rm -f "$g"; echo "yast: removed section $1"
   sync_apps
 }
@@ -276,7 +464,8 @@ list_sections() {
   local f
   for f in "$D"/groups/*.desktop "$U"/groups/*.desktop; do
     [[ -f "$f" ]] || continue
-    printf '%-28s %s%s\n' "$(value X-SuSE-YaST-Group "$f")" "$(value Name "$f")" "$(is_mine "$f" && echo '  (yours)')"
+    local g n; g="$(value X-SuSE-YaST-Group "$f")"; n="$(layout_get Names "$g")"
+    printf '%-28s %s%s\n' "$g" "${n:-$(value Name "$f")}" "$(is_mine "$f" && echo '  (yours)')"
   done | sort -u
 }
 
@@ -285,6 +474,10 @@ case "$cmd" in
   add-app) add_app "$@" ;;
   remove-app) remove_app "$@" ;;
   remove-section) remove_section "$@" ;;
+  add-section) add_section "$@" ;;
+  move-app) move_app "$@" ;;
+  rename-section) rename_section "$@" ;;
+  list-layout) list_layout ;;
   list-apps) list_apps ;;
   list-sections) list_sections ;;
   sync-apps) sync_apps ;;

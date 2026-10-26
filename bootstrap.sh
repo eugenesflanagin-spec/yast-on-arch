@@ -390,6 +390,7 @@ clone https://github.com/yast/yast-control-center.git yast-control-center
   apply_patch . "$HERE/patches/07-control-center-launcher-and-prefix.patch"
   apply_patch . "$HERE/patches/20-control-center-search-perf.patch"
   apply_patch . "$HERE/patches/21-control-center-search-group-sidebar.patch"
+  apply_patch . "$HERE/patches/22-control-center-colours-and-layout.patch"
   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX/destdir/usr" \
     -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_MODULE_PATH="$PREFIX/share/cmake/Modules" -DVERSION=4.7.0 >/dev/null
   cmake --build build -j"$(nproc)" >/dev/null && cmake --install build >/dev/null )

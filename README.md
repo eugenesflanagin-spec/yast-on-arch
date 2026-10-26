@@ -6,7 +6,7 @@ YaST was retired upstream — openSUSE Leap 16 dropped graphical YaST entirely �
 non-SUSE port has existed since [YaST4Debian](https://en.wikipedia.org/wiki/YaST) went dormant
 around 2010. This repo makes it build and run on Arch.
 
-**Version 0.2.0** — what changed: [CHANGELOG.md](CHANGELOG.md).
+**Version 0.3.0** — what changed: [CHANGELOG.md](CHANGELOG.md).
 **New here? Read the [User Guide](docs/USER-GUIDE.md)**: install from a fresh Arch system,
 starting modules from the menu, adding your own programs to the Control Center, what works and
 what doesn't, safety, troubleshooting, uninstall.
@@ -46,9 +46,15 @@ cd yast-on-arch && ./bootstrap.sh
 ~/libyui-port/yast add-app --name "Process Monitor" --exec htop --terminal --icon utilities-system-monitor
 ~/libyui-port/yast add-app --name "My Script" --exec ~/bin/my-script.sh --new-section "My Tools"
 ~/libyui-port/yast list-apps          # remove-app NAME, list-sections, add-app --help
+~/libyui-port/yast move-app "Clean pacman cache" --to Hardware     # any program, also YaST's own
+~/libyui-port/yast rename-section Hardware --to "Hardware & Fans"  # any section
 ```
 
-No root needed; the entries survive rebuilds. Details, and the manual way (a `.desktop` file
+Or do it all from the Control Center: the **Add or change...** button under the search field
+adds programs and sections, moves programs and renames sections. The **Section colours** box
+next to it colour-codes the sections: Off, Headers, or Whole block.
+
+No root needed; your entries and layout survive rebuilds. Details, and the manual way (a `.desktop` file
 in `arch/applications/` or a section in `arch/applications/groups/`), are in
 [User Guide section 5](docs/USER-GUIDE.md#5-add-your-own-app-or-section).
 
@@ -166,8 +172,9 @@ This is probably the single most reusable thing here — it would affect any dis
   ```
 - **Releases** ([`release.yml`](.github/workflows/release.yml)): set `VERSION`, add its section
   to `CHANGELOG.md`, then push a tag `vX.Y.Z` that equals `v` + `VERSION`. The full CI runs
-  first; only if it passes is a GitHub release made with `yast-on-arch-X.Y.Z.tar.gz` and
-  `SHA256SUMS`. A release that is already published is never overwritten.
+  first; only if it passes is a GitHub release made with `yast-on-arch-X.Y.Z.tar.gz`, the
+  patches on their own (`yast-on-arch-X.Y.Z-patches.tar.gz`), the User Guide PDF and
+  `SHA256SUMS`. A release that is already published is left alone.
 - **No prebuilt binaries.** The built prefix is not relocatable: about 570 of its files contain
   the absolute build path (compiled-in search paths, library RUNPATHs, SCR agent and menu
   files), and it is tied to the exact Ruby, ICU, Boost and Qt versions Arch had on the day it
