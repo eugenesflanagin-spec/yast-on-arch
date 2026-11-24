@@ -1,7 +1,7 @@
 # yast-on-arch — User Guide
 
 openSUSE's YaST system-configuration tool, built and running on Arch Linux.
-This guide describes version **0.3.1** (`~/libyui-port/yast --version`; changes are listed in
+This guide describes version **0.3.2** (`~/libyui-port/yast --version`; changes are listed in
 [CHANGELOG.md](../CHANGELOG.md)).
 
 This guide is for anyone installing yast-on-arch, from people who remember YaST from SuSE and
@@ -209,10 +209,19 @@ More - System - Containers=Games       ; works for any section, by its full name
 If you have sections called "More - System - *category*" (for example ones you added yourself),
 each gets a colour of its own instead of all sharing one. Where a category matches a genre it
 uses that genre's colour: Networking -> Network, Security & Accounts -> Security, Hardware &
-Drivers -> Hardware, Gaming Helpers -> Games, System Info & Monitors -> Information, Other ->
-Utilities. The rest (AI & LLM, Containers, Disks & Partitions, Terminals & Shell, …) have
-hand-picked colours that are easy to tell apart, and a category the Control Center doesn't know
-gets a new colour as described below.
+Drivers -> Hardware, Gaming Helpers -> Games, System Info & Monitors -> Information. The rest
+(AI & LLM, Containers, Disks & Partitions, Terminals & Shell, …) have hand-picked colours that are
+easy to tell apart, and a category the Control Center doesn't know, Other included, gets a new
+colour as described below.
+
+If you have sections called "Utilities - *category*", they use the same colour as their "More - System -
+*category*" twin, so "Utilities - Containers" and "More - System - Containers" match. If you
+have sections called "Settings - *section*", they use the genre they are about: Network & Sharing -> Network,
+Accounts & Privacy -> Security, Kernel & Boot -> System, Sound & Audio -> Multimedia, Display &
+Monitors -> Graphics, Game & Compat -> Games, Peripherals & Devices -> Hardware, Software &
+Updates -> Software. Any other "Settings - …" section gets a colour of its own. (Before 0.3.2
+all of them shared the Utilities or Settings colour, which in *Whole block* mode was so muted it
+looked like no colour at all.)
 
 Two ways to change a section's colour:
 
@@ -225,7 +234,13 @@ Two ways to change a section's colour:
   The genre name must match exactly, including capitals. If the Control Center already saved a
   colour for that section under `[Colors]`, delete that line first: a full name always wins.
 - Colours the Control Center picks by itself for a new system category are saved as
-  `System: <category>` (for example `System: Containers`).
+  `System: <category>` (for example `System: Containers`), and for a "Settings - …" section
+  as `Settings: <section>` (for example `Settings: Power & Session`).
+- A colour for the **Utilities** or **Settings** genre does not reach "Utilities - …" or
+  "Settings - …" sections (they have colours of their own since 0.3.2): give the section's full
+  name, or its `System: <category>` / `Settings: <section>` entry, a colour instead.
+- A section name that contains `/` cannot be set in the file (the file format uses `/` itself);
+  such a section keeps an automatic colour.
 
 Restart the Control Center after editing the file by hand.
 
@@ -686,7 +701,7 @@ That is real system configuration and it doesn't depend on YaST.
 | 19 | yast-nis-client | ypbind settings in `/etc/conf.d/ypbind` (+ the systemd drop-in) |
 | 20 | yast2-control-center | search no longer freezes with thousands of modules |
 | 21 | yast2-control-center | group sidebar narrows to groups with matching modules while searching |
-| 22 | yast2-control-center | section colours (Off / Headers / Whole block; a colour per "More - System" category; `[Colors]` and `[Aliases]` in `section-colors.ini`); "Add or change..." window; moved programs and renamed sections from `layout.ini` |
+| 22 | yast2-control-center | section colours (Off / Headers / Whole block; a colour per "More - System", "Utilities" and "Settings" category; `[Colors]` and `[Aliases]` in `section-colors.ini`); "Add or change..." window; moved programs and renamed sections from `layout.ini` |
 
 Plus the Arch stand-ins in `arch/`: `Pkg` (pacman-backed queries, no transactions), no-op
 `InstURL`/`Packages`/`SLPAPI`/`PackageSlideShow`, `cfa/grub2` copies for `/boot/grub`, a Perl

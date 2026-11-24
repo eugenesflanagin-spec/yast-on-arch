@@ -6,7 +6,7 @@ YaST was retired upstream — openSUSE Leap 16 dropped graphical YaST entirely �
 non-SUSE port has existed since [YaST4Debian](https://en.wikipedia.org/wiki/YaST) went dormant
 around 2010. This repo makes it build and run on Arch.
 
-**Version 0.3.0** — what changed: [CHANGELOG.md](CHANGELOG.md).
+**Version 0.3.2** — what changed: [CHANGELOG.md](CHANGELOG.md).
 **New here? Read the [User Guide](docs/USER-GUIDE.md)**: install from a fresh Arch system,
 starting modules from the menu, adding your own programs to the Control Center, what works and
 what doesn't, safety, troubleshooting, uninstall.

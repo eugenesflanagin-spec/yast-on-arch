@@ -12,9 +12,14 @@ colour in use, saved to that file. A renamed section keeps its colour.
 Each "More - System - <category>" section has a colour of its own: the
 ones that match a family use it (Networking -> Network, Security & Accounts
 -> Security, Hardware & Drivers -> Hardware, Gaming Helpers -> Games, System
-Info & Monitors -> Information, Other -> Utilities), the others have
-hand-picked colours. An [Aliases] section in the same file (Group name=
-Family) puts any group, these included, into another family.
+Info & Monitors -> Information), the others, Other included, have colours
+of their own. "Utilities - <category>" uses the same colour as its "More -
+System - <category>" twin, and each "Settings - <section>" uses the family it
+is about (Network & Sharing -> Network, Accounts & Privacy -> Security, Kernel
+& Boot -> System, Sound & Audio -> Multimedia, Display & Monitors -> Graphics,
+Game & Compat -> Games, Peripherals & Devices -> Hardware, Software & Updates
+-> Software) or a colour of its own. An [Aliases] section in the same file
+(Group name=Family) puts any group, these included, into another family.
 
 Layout: ~/.local/share/yast-on-arch/layout.ini ([Moves] file.desktop=GROUP,
 [Names] GROUP=Name) shows an entry in another section or a section under
@@ -972,10 +977,10 @@ index 19512a9..81e1a1d 100644
  
 diff --git c/src/sectioncolors.cpp i/src/sectioncolors.cpp
 new file mode 100644
-index 0000000..1037a2f
+index 0000000..5793f5d
 --- /dev/null
 +++ i/src/sectioncolors.cpp
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,303 @@
 +/****************************************************************************
 +|
 +| Copyright (c) 2026 yast-on-arch contributors
@@ -1008,8 +1013,12 @@ index 0000000..1037a2f
 + *   My Tools=Development    ; a group (full name) uses that family's colour;
 + *                           ; also works for "More - System - <category>"
 + *
-+ * Families without an entry in the built-in table get a stable colour
-+ * derived from their name.
++ * "Utilities - <category>" uses the same colour as "More - System - <category>";
++ * "Settings - <section>" uses the family it is about (Network & Sharing ->
++ * Network, ...) or a colour of its own.
++ *
++ * Families without an entry in the built-in table get the hue furthest from
++ * every colour in use, saved to the ini so it stays the same.
 + */
 +
 +#include "sectioncolors.h"
@@ -1032,6 +1041,7 @@ index 0000000..1037a2f
 +        QHash<QString, QColor> colors;     // family or group name -> colour
 +        QHash<QString, QString> aliases;   // group name -> family
 +        QHash<QString, QString> categoryFamily;   // "More - System - <category>" -> family
++        QHash<QString, QString> settingsFamily;   // "Settings - <section>" -> family
 +
 +        SectionColors()
 +        {
@@ -1080,8 +1090,21 @@ index 0000000..1037a2f
 +                { "Security & Accounts", "Security" },
 +                { "Hardware & Drivers",  "Hardware" },
 +                { "Gaming Helpers",      "Games" },
-+                { "Other",               "Utilities" },
 +                { "System Info & Monitors", "Information" },
++            };
++
++            // 2026-11-24 "Settings - <section>": muted brown on every Settings section
++            // read as "no colour" in Whole-block mode. Each section now uses the family
++            // it is about, or a colour of its own (new hue, saved to the ini).
++            settingsFamily = {
++                { "Network & Sharing",     "Network" },
++                { "Accounts & Privacy",    "Security" },
++                { "Kernel & Boot",         "System" },
++                { "Sound & Audio",         "Multimedia" },
++                { "Display & Monitors",    "Graphics" },
++                { "Game & Compat",         "Games" },
++                { "Peripherals & Devices", "Hardware" },
++                { "Software & Updates",    "Software" },
 +            };
 +
 +            // the other system categories: hand-picked so they stay easy to tell apart
@@ -1188,6 +1211,25 @@ index 0000000..1037a2f
 +                if ( sub == "Emulators" || sub == "Benchmarks" || sub == "Settings" )
 +                    return sub;
 +                return colors.contains( sub ) ? sub : f;
++            }
++
++            // "Utilities - <category>" is the same set of categories as
++            // "More - System - <category>": same colour for the same category.
++            // section(" - ", 1) keeps names that contain " - " themselves whole.
++            if ( f == "Utilities" )
++            {
++                QString cat = name.section( " - ", 1 ).trimmed();
++                if ( cat.isEmpty() )
++                    return "Utilities";
++                return categoryFamily.value( cat, "System: " + cat );
++            }
++
++            if ( f == "Settings" )
++            {
++                QString sub = name.section( " - ", 1 ).trimmed();
++                if ( sub.isEmpty() )
++                    return "Settings";
++                return settingsFamily.value( sub, "Settings: " + sub );
 +            }
 +
 +            // "Real-Time Corruptor - RTCV 5.1.1" is an emulator tool

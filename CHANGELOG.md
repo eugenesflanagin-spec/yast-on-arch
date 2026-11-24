@@ -2,6 +2,28 @@
 
 All notable changes to yast-on-arch. Versions follow [semantic versioning](https://semver.org/).
 
+## 0.3.2 — 2026-11-24
+
+### Changed
+
+- **"Utilities - …" and "Settings - …" sections each get a clear colour.** All "Utilities - …"
+  sections used to share one grey-blue and all "Settings - …" sections one muted brown; in
+  *Whole block* mode those tints were so faint that about half of a large Control Center looked
+  uncoloured.
+  - "Utilities - *category*" now uses the same colour as its "More - System - *category*" twin.
+  - "Settings - *section*" uses the genre it is about (Network & Sharing → Network, Accounts &
+    Privacy → Security, Kernel & Boot → System, Sound & Audio → Multimedia, Display & Monitors →
+    Graphics, Game & Compat → Games, Peripherals & Devices → Hardware, Software & Updates →
+    Software), or a colour of its own, saved as `Settings: <section>` in `section-colors.ini`.
+  - "Other" categories get a colour of their own instead of the Utilities grey.
+  - A category whose own name contains " - " (for example "Utilities - Boot - Session & Power")
+    is matched by its whole name, as "More - System - …" categories already were.
+- A colour set for the **Utilities** or **Settings** genre in `section-colors.ini` no longer
+  applies to "Utilities - …" / "Settings - …" sections; set the section's full name, or its
+  `System: <category>` / `Settings: <section>` entry, instead.
+
+yast-on-arch changes are Copyright (C) 2026 by Eugene Flanagin. Licensed under the GNU General Public License v2.0 (GPL-2.0), like YaST itself.
+
 ## 0.3.1 — 2026-10-26
 
 ### Changed
